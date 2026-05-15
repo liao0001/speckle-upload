@@ -3,6 +3,7 @@ using Objects.Converter.Revit;
 using RevitSharedResources.Interfaces;
 using RevitSharedResources.Models;
 using Speckle.Core.Api;
+using Speckle.Core.Api.GraphQL.Models;
 using Speckle.Core.Credentials;
 using Speckle.Core.Models;
 using Speckle.Core.Transports;
@@ -83,15 +84,10 @@ public static class SpeckleSendService
     account.serverInfo = new ServerInfo { url = request.ServerUrl.TrimEnd('/') };
 
     var client = new Client(account);
-    var transports = new List<ITransport> { new ServerTransport(account, request.StreamId) };
+    using var serverTransport = new ServerTransport(account, request.StreamId);
+    IReadOnlyList<ITransport> transports = new[] { serverTransport };
 
-    var objectId = await Operations
-      .Send(
-        @object: commitObject,
-        transports: transports,
-        disposeTransports: true
-      )
-      .ConfigureAwait(false);
+    var objectId = await Operations.Send(commitObject, transports).ConfigureAwait(false);
 
     var commitInput = new CommitCreateInput
     {
@@ -104,7 +100,7 @@ public static class SpeckleSendService
       sourceApplication = ConverterRevit.RevitAppName,
     };
 
-    var commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
+    var commitId = await client.VersionResource.Create(commitInput).ConfigureAwait(false);
 
     return new UploadCallbackPayload
     {
