@@ -11,29 +11,30 @@ namespace SpeckleUpload.Http;
 public sealed class HttpUploadServer : IDisposable
 {
   private readonly UploadEventHandler _handler;
-  private readonly ExternalEvent _externalEvent;
   private readonly HttpListener _listener = new();
   private CancellationTokenSource? _cts;
   private Task? _listenTask;
 
-  public HttpUploadServer(UploadEventHandler handler, ExternalEvent externalEvent)
+  public HttpUploadServer(UploadEventHandler handler)
   {
     _handler = handler;
-    _externalEvent = externalEvent;
   }
 
   public void Start()
   {
     var prefix = $"http://localhost:{PluginSettings.HttpPort}/";
+    PluginLog.Step("Http", $"Start: prefix={prefix}");
     _listener.Prefixes.Add(prefix);
     _listener.Start();
 
     _cts = new CancellationTokenSource();
     _listenTask = Task.Run(() => ListenAsync(_cts.Token));
+    PluginLog.Step("Http", "Start: listener task started");
   }
 
   public void Stop()
   {
+    PluginLog.Step("Http", "Stop: begin");
     _cts?.Cancel();
     if (_listener.IsListening)
     {
@@ -48,6 +49,8 @@ public sealed class HttpUploadServer : IDisposable
     {
       // Ignore shutdown race.
     }
+
+    PluginLog.Step("Http", "Stop: end");
   }
 
   public void Dispose()
@@ -77,6 +80,7 @@ public sealed class HttpUploadServer : IDisposable
       }
       catch (Exception ex)
       {
+        PluginLog.Step("Http", $"ListenAsync: unhandled exception {ex}");
         if (context?.Response != null)
         {
           await WriteJsonAsync(
@@ -94,9 +98,12 @@ public sealed class HttpUploadServer : IDisposable
     var request = context.Request;
     var response = context.Response;
     var path = request.Url?.AbsolutePath?.TrimEnd('/') ?? string.Empty;
+    var remote = request.RemoteEndPoint?.ToString() ?? "?";
+    PluginLog.Step("Http", $"{request.HttpMethod} {path} remote={remote}");
 
     if (request.HttpMethod == "GET" && (path == "" || path == "/health"))
     {
+      PluginLog.Step("Http", "HandleRequest: health OK");
       await WriteJsonAsync(
         response,
         HttpStatusCode.OK,
@@ -107,10 +114,12 @@ public sealed class HttpUploadServer : IDisposable
 
     if (request.HttpMethod == "POST" && path == "/upload")
     {
+      PluginLog.Step("Http", "HandleRequest: route /upload");
       await HandleUploadAsync(request, response).ConfigureAwait(false);
       return;
     }
 
+    PluginLog.Step("Http", $"HandleRequest: 404 path={path}");
     await WriteJsonAsync(
       response,
       HttpStatusCode.NotFound,
@@ -120,19 +129,24 @@ public sealed class HttpUploadServer : IDisposable
 
   private async Task HandleUploadAsync(HttpListenerRequest request, HttpListenerResponse response)
   {
+    PluginLog.Step("Http", "HandleUpload: reading body");
     string body;
     using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
     {
       body = await reader.ReadToEndAsync().ConfigureAwait(false);
     }
 
+    PluginLog.Step("Http", $"HandleUpload: body length={body.Length}");
+
     UploadRequest? uploadRequest;
     try
     {
       uploadRequest = JsonConvert.DeserializeObject<UploadRequest>(body);
+      PluginLog.Step("Http", "HandleUpload: JSON deserialized");
     }
     catch (Exception ex)
     {
+      PluginLog.Step("Http", $"HandleUpload: JSON error {ex.Message}");
       await WriteJsonAsync(
         response,
         HttpStatusCode.BadRequest,
@@ -143,6 +157,7 @@ public sealed class HttpUploadServer : IDisposable
 
     if (uploadRequest == null)
     {
+      PluginLog.Step("Http", "HandleUpload: body empty after deserialize");
       await WriteJsonAsync(
         response,
         HttpStatusCode.BadRequest,
@@ -153,6 +168,7 @@ public sealed class HttpUploadServer : IDisposable
 
     if (string.IsNullOrWhiteSpace(uploadRequest.FilePath))
     {
+      PluginLog.Step("Http", "HandleUpload: validation fail filePath");
       await WriteJsonAsync(
         response,
         HttpStatusCode.BadRequest,
@@ -163,6 +179,7 @@ public sealed class HttpUploadServer : IDisposable
 
     if (string.IsNullOrWhiteSpace(uploadRequest.StreamId))
     {
+      PluginLog.Step("Http", "HandleUpload: validation fail streamId");
       await WriteJsonAsync(
         response,
         HttpStatusCode.BadRequest,
@@ -173,6 +190,7 @@ public sealed class HttpUploadServer : IDisposable
 
     if (string.IsNullOrWhiteSpace(uploadRequest.Token))
     {
+      PluginLog.Step("Http", "HandleUpload: validation fail token");
       await WriteJsonAsync(
         response,
         HttpStatusCode.BadRequest,
@@ -181,22 +199,47 @@ public sealed class HttpUploadServer : IDisposable
       return;
     }
 
+    PluginLog.Step(
+      "Http",
+      $"HandleUpload: validated filePath=\"{uploadRequest.FilePath}\" streamId=\"{uploadRequest.StreamId}\" serverUrl=\"{uploadRequest.ServerUrl}\""
+    );
+
     if (string.IsNullOrWhiteSpace(uploadRequest.RequestId))
     {
       uploadRequest.RequestId = Guid.NewGuid().ToString("N");
+      PluginLog.Step("Http", $"HandleUpload: generated requestId={uploadRequest.RequestId}");
     }
-
-    var workItem = new UploadWorkItem(uploadRequest, _externalEvent);
-    if (!_handler.TryEnqueue(workItem))
+    else
     {
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.Conflict,
-        new { success = false, error = "Another upload is in progress." }
-      ).ConfigureAwait(false);
-      return;
+      PluginLog.Step("Http", $"HandleUpload: requestId={uploadRequest.RequestId}");
     }
 
+    var workItem = new UploadWorkItem(uploadRequest);
+    PluginLog.Step("Http", "HandleUpload: TryEnqueue");
+    var enqueueResult = _handler.TryEnqueue(workItem);
+
+    switch (enqueueResult.Status)
+    {
+      case UploadEnqueueStatus.Busy:
+        PluginLog.Step("Http", "HandleUpload: enqueue Busy -> 409");
+        await WriteJsonAsync(
+          response,
+          HttpStatusCode.Conflict,
+          new { success = false, error = "Another upload is in progress." }
+        ).ConfigureAwait(false);
+        return;
+
+      case UploadEnqueueStatus.Denied:
+        PluginLog.Step("Http", $"HandleUpload: enqueue Denied -> 503 msg={enqueueResult.Message}");
+        await WriteJsonAsync(
+          response,
+          HttpStatusCode.ServiceUnavailable,
+          new { success = false, error = enqueueResult.Message }
+        ).ConfigureAwait(false);
+        return;
+    }
+
+    PluginLog.Step("Http", $"HandleUpload: enqueue {enqueueResult.Status} -> 202");
     await WriteJsonAsync(
       response,
       HttpStatusCode.Accepted,
@@ -205,7 +248,10 @@ public sealed class HttpUploadServer : IDisposable
         success = true,
         accepted = true,
         requestId = uploadRequest.RequestId,
-        message = "Upload queued. Result will be sent to callback URL.",
+        queueStatus = enqueueResult.Status.ToString(),
+        message =
+          enqueueResult.Message
+          ?? "Upload queued. Result will be sent to callback URL.",
       }
     ).ConfigureAwait(false);
   }
