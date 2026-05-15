@@ -100,7 +100,9 @@ public static class SpeckleSendService
       sourceApplication = ConverterRevit.RevitAppName,
     };
 
-    var commitId = await client.VersionResource.Create(commitInput).ConfigureAwait(false);
+#pragma warning disable CS0618
+    var commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
+#pragma warning restore CS0618
 
     return new UploadCallbackPayload
     {
