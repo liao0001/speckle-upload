@@ -6,6 +6,113 @@ namespace SpeckleUpload.Services;
 
 public static class DocumentService
 {
+  /// <summary>
+  /// 关闭除 <paramref name="keepOpen"/> 以外的所有非链接文档。
+  /// 注意：不能先关闭当前活动文档；应先 <see cref="OpenDocument"/> 再调用本方法。
+  /// </summary>
+  public static void CloseOtherDocumentsExcept(UIApplication uiApp, Document keepOpen)
+  {
+    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: begin keep=\"{keepOpen.Title}\" path=\"{keepOpen.PathName}\"");
+
+    var documents = uiApp.Application.Documents.Cast<Document>().ToList();
+    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: open count={documents.Count}");
+
+    foreach (var document in documents)
+    {
+      if (document.IsLinked)
+      {
+        PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: skip linked \"{document.Title}\"");
+        continue;
+      }
+
+      if (ReferenceEquals(document, keepOpen))
+      {
+        PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: skip keep-open \"{document.Title}\"");
+        continue;
+      }
+
+      PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: closing \"{document.Title}\" path=\"{document.PathName}\"");
+      TryCloseDocument(document);
+    }
+
+    PluginLog.Step("Doc", "CloseOtherDocumentsExcept: end");
+  }
+
+  /// <summary>
+  /// 确保上传目标 RVT 为当前活动文档：若已是当前文档则只关其它；否则先打开目标再关其它。
+  /// </summary>
+  public static Document PrepareDocumentForUpload(UIApplication uiApp, string filePath)
+  {
+    PluginLog.Step("Doc", $"PrepareDocumentForUpload: begin target=\"{filePath}\"");
+
+    if (!File.Exists(filePath))
+    {
+      PluginLog.Step("Doc", "PrepareDocumentForUpload: file not found");
+      throw new FileNotFoundException($"Revit file not found: {filePath}");
+    }
+
+    var active = uiApp.ActiveUIDocument?.Document;
+    if (active != null && PathsEqual(NormalizePath(active.PathName), NormalizePath(filePath)))
+    {
+      PluginLog.Step("Doc", "PrepareDocumentForUpload: target already active");
+      CloseOtherDocumentsExcept(uiApp, active);
+      return active;
+    }
+
+    PluginLog.Step("Doc", "PrepareDocumentForUpload: opening target (switches active document)");
+    var opened = OpenDocument(uiApp, filePath);
+    CloseOtherDocumentsExcept(uiApp, opened);
+
+    PluginLog.Step("Doc", "PrepareDocumentForUpload: end");
+    return opened;
+  }
+
+  public static bool TryCloseDocument(Document document)
+  {
+    try
+    {
+      document.Close(false);
+      PluginLog.Step("Doc", $"TryCloseDocument: closed \"{document.Title}\"");
+      return true;
+    }
+    catch (Exception ex)
+    {
+      PluginLog.Step("Doc", $"TryCloseDocument: failed \"{document.Title}\": {ex.GetType().Name} {ex.Message}");
+      return false;
+    }
+  }
+
+  private static string? NormalizePath(string? path)
+  {
+    if (string.IsNullOrWhiteSpace(path))
+    {
+      return null;
+    }
+
+    try
+    {
+      return Path.GetFullPath(path);
+    }
+    catch
+    {
+      return path.Trim();
+    }
+  }
+
+  private static bool PathsEqual(string? a, string? b)
+  {
+    if (a == null || b == null)
+    {
+      return false;
+    }
+
+    return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+  }
+
+  /// <summary>
+  /// 关闭所有非链接文档（含当前活动文档）。Revit 在多数上下文中不允许 API 关闭活动文档，上传流程请改用
+  /// <see cref="PrepareDocumentForUpload"/>。
+  /// </summary>
   public static void CloseAllDocuments(UIApplication uiApp)
   {
     PluginLog.Step("Doc", "CloseAllDocuments: begin");
@@ -22,8 +129,7 @@ public static class DocumentService
       }
 
       PluginLog.Step("Doc", $"CloseAllDocuments: closing document title=\"{document.Title}\" path=\"{document.PathName}\"");
-      document.Close(false);
-      PluginLog.Step("Doc", $"CloseAllDocuments: closed title=\"{document.Title}\"");
+      TryCloseDocument(document);
     }
 
     PluginLog.Step("Doc", "CloseAllDocuments: end");
@@ -78,7 +184,11 @@ public static class DocumentService
     }
 
     PluginLog.Step("Doc", $"CloseActiveDocument: closing title=\"{activeDoc.Title}\"");
-    activeDoc.Close(false);
+    if (!TryCloseDocument(activeDoc))
+    {
+      PluginLog.Step("Doc", "CloseActiveDocument: TryCloseDocument returned false (e.g. still active in this API context)");
+    }
+
     PluginLog.Step("Doc", "CloseActiveDocument: end");
   }
 

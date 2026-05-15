@@ -6,12 +6,14 @@ namespace SpeckleUpload.Services;
 public sealed class UploadEventHandler : IExternalEventHandler
 {
   private readonly object _sync = new();
+  private UIApplication? _revitApp;
   private ExternalEvent? _externalEvent;
   private UploadWorkItem? _pending;
+  private volatile bool _deferredCloseActive;
 
   public void Initialize(UIApplication uiApp, ExternalEvent externalEvent)
   {
-    _ = uiApp;
+    _revitApp = uiApp;
     _externalEvent = externalEvent;
     PluginLog.Step("UploadHandler", "Initialize: ExternalEvent bound");
   }
@@ -72,6 +74,20 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
   public void OnIdling()
   {
+    if (_deferredCloseActive && _revitApp != null)
+    {
+      _deferredCloseActive = false;
+      PluginLog.Step("UploadHandler", "OnIdling: deferred CloseActiveDocument");
+      try
+      {
+        DocumentService.CloseActiveDocument(_revitApp);
+      }
+      catch (Exception ex)
+      {
+        PluginLog.Step("UploadHandler", $"OnIdling: deferred close exception {ex.Message}");
+      }
+    }
+
     var externalEvent = _externalEvent;
     if (externalEvent == null || !externalEvent.IsPending)
     {
@@ -97,6 +113,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
   public void Execute(UIApplication app)
   {
+    _revitApp = app;
     PluginLog.Step("UploadHandler", "Execute: invoked by Revit");
     UploadWorkItem? item;
     lock (_sync)
@@ -118,11 +135,8 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
     try
     {
-      PluginLog.Step("UploadHandler", "Execute: step CloseAllDocuments");
-      DocumentService.CloseAllDocuments(app);
-
-      PluginLog.Step("UploadHandler", "Execute: step OpenDocument");
-      var document = DocumentService.OpenDocument(app, request.FilePath);
+      PluginLog.Step("UploadHandler", "Execute: step PrepareDocumentForUpload (open target then close others)");
+      var document = DocumentService.PrepareDocumentForUpload(app, request.FilePath);
 
       PluginLog.Step("UploadHandler", "Execute: step SpeckleSend");
       payload = SpeckleSendService
@@ -161,16 +175,8 @@ public sealed class UploadEventHandler : IExternalEventHandler
     }
     finally
     {
-      try
-      {
-        PluginLog.Step("UploadHandler", "Execute: step CloseActiveDocument");
-        DocumentService.CloseActiveDocument(app);
-        PluginLog.Step("UploadHandler", "Execute: CloseActiveDocument done");
-      }
-      catch (Exception ex)
-      {
-        PluginLog.Step("UploadHandler", $"Execute: CloseActiveDocument error {ex.Message}");
-      }
+      _deferredCloseActive = true;
+      PluginLog.Step("UploadHandler", "Execute: scheduled deferred CloseActiveDocument on next Idling");
     }
 
     item.Completion.TrySetResult(payload);
