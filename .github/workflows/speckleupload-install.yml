@@ -1,0 +1,44 @@
+name: SpeckleUpload Install Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore SpeckleUpload.sln
+
+      - name: Build
+        run: dotnet build SpeckleUpload.sln -c Release --no-restore
+
+      - name: Stage install bundle
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
+          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\Release\net48"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          Copy-Item -Path (Join-Path $bin "*") -Destination $out -Recurse -Force
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
+          Write-Host "Bundle contents:"
+          Get-ChildItem $out | ForEach-Object { Write-Host $_.Name }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: speckleupload-revit2022-install
+          path: install-bundle/

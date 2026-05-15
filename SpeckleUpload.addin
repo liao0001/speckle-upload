@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>SpeckleUpload</Name>
+    <Assembly>SpeckleUpload.dll</Assembly>
+    <FullClassName>SpeckleUpload.SpeckleUploadApp</FullClassName>
+    <ClientId>8eee0545-1923-46bf-a7aa-30f31f4dd7bd</ClientId>
+    <VendorId>SpeckleUpload</VendorId>
+    <VendorDescription>Speckle Upload Plugin for Revit 2022</VendorDescription>
+  </AddIn>
+</RevitAddIns>
