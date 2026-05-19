@@ -1,3 +1,4 @@
+using System.Reflection;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -56,6 +57,10 @@ public class SpeckleUploadApp : IExternalApplication
     _server = new HttpUploadServer(_handler);
     _server.Start();
 
+    var asm = Assembly.GetExecutingAssembly();
+    var asmVersion = asm.GetName().Version?.ToString() ?? "unknown";
+    var asmTime = File.GetLastWriteTime(asm.Location).ToString("yyyy-MM-dd HH:mm:ss");
+    PluginLog.Step("App", $"SpeckleUpload assembly version={asmVersion} fileTime={asmTime}");
     PluginLog.Step(
       "App",
       $"OnApplicationInitialized: HTTP started port={PluginSettings.HttpPort} log={PluginLog.LogFilePath}"

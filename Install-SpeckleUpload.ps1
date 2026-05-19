@@ -1,4 +1,6 @@
 #Requires -Version 5.1
+# 若直接运行本脚本被系统拦截（执行策略），请双击同目录下的 Install-SpeckleUpload.cmd，
+# 或在 PowerShell 中执行: powershell -NoProfile -ExecutionPolicy Bypass -File ".\Install-SpeckleUpload.ps1"
 <#
 .SYNOPSIS
   将当前目录（解压后的 SpeckleUpload 制品）部署到 Revit 2022 用户插件目录。

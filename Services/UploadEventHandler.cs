@@ -179,6 +179,11 @@ public sealed class UploadEventHandler : IExternalEventHandler
       PluginLog.Step("UploadHandler", "Execute: scheduled deferred CloseActiveDocument on next Idling");
     }
 
+    PluginLog.Step(
+      "UploadHandler",
+      $"Execute: result requestId={request.RequestId} success={payload.Success} error={payload.Error ?? "(none)"} objectId={payload.ObjectId ?? "-"} commitId={payload.CommitId ?? "-"}"
+    );
+
     item.Completion.TrySetResult(payload);
     PluginLog.Step("UploadHandler", $"Execute: finished requestId={request.RequestId}");
   }

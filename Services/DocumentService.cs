@@ -25,7 +25,7 @@ public static class DocumentService
         continue;
       }
 
-      if (ReferenceEquals(document, keepOpen))
+      if (IsSameDocument(document, keepOpen))
       {
         PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: skip keep-open \"{document.Title}\"");
         continue;
@@ -107,6 +107,19 @@ public static class DocumentService
     }
 
     return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+  }
+
+  /// <summary>
+  /// Revit 有时对同一文档返回不同 Document 实例，需用路径辅助判断。
+  /// </summary>
+  private static bool IsSameDocument(Document a, Document b)
+  {
+    if (ReferenceEquals(a, b))
+    {
+      return true;
+    }
+
+    return PathsEqual(NormalizePath(a.PathName), NormalizePath(b.PathName));
   }
 
   /// <summary>

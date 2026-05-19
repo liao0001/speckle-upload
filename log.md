@@ -29,3 +29,19 @@
 
 ## 2026-05-15 18:43
 - 新增 `Install-SpeckleUpload.ps1`：解压目录一键部署到 `%APPDATA%\...\SpeckleUpload`、Unblock、`pause`；CI 制品打包包含该脚本；`说明.md` 补充「自动部署脚本」说明
+
+## 2026-05-15 18:51
+- 新增 `Install-SpeckleUpload.cmd`（Bypass 执行策略）并纳入 CI 制品；`说明.md` 推荐双击 `.cmd`；`.ps1` 顶部补充绕过说明
+
+## 2026-05-15 18:56
+- `说明.md` 功能点 1 与实现一致：先打开目标模型再关闭其它文档（并注明 Revit API 限制）
+
+## 2026-05-19 10:30
+- 转换循环单元素 try/catch，避免 MEP 等单构件异常中断整次上传；`Operations.Send` / `CommitCreate` 失败单独写日志；Execute 结束记录 success/error
+- `CloseOtherDocumentsExcept` 用路径比较识别同一文档，避免误关当前活动模型
+
+## 2026-05-19 10:39
+- 新增 `upload-rvt.sh`：按 API.md 实现创建上传任务、MinIO PUT、upload-complete 确认（依赖 curl、jq）
+
+## 2026-05-19 10:49
+- 启动日志输出程序集版本与 DLL 修改时间；CommitCreate 前记录 branchName/streamId

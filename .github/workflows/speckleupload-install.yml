@@ -35,6 +35,7 @@ jobs:
           Copy-Item -Path (Join-Path $bin "*") -Destination $out -Recurse -Force
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.ps1") -Destination $out -Force
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.cmd") -Destination $out -Force
           Write-Host "Bundle contents:"
           Get-ChildItem $out | ForEach-Object { Write-Host $_.Name }
 
