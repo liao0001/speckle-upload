@@ -24,4 +24,7 @@ public sealed class UploadRequest
 
   [JsonProperty("requestId")]
   public string? RequestId { get; set; }
+
+  [JsonProperty("callbackUrl")]
+  public string? CallbackUrl { get; set; }
 }

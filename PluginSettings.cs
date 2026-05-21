@@ -3,7 +3,7 @@ namespace SpeckleUpload;
 public static class PluginSettings
 {
   public const int DefaultHttpPort = 6688;
-  public const string DefaultCallbackUrl = "http://localhost:6689/api/callback";
+  public const string DefaultCallbackUrl = "http://127.0.0.1:6689/api/callback";
 
   public static int HttpPort
   {

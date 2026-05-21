@@ -5,7 +5,7 @@
 - 新增 `SpeckleUploadApp`：Revit 启动时自动启动 HTTP 监听
 - 新增 HTTP 服务（默认端口 6688，环境变量 `SPECKLE_UPLOAD_HTTP_PORT`）
 - 实现 `POST /upload`：打开指定 RVT、转换 Physical Objects、发送到 Speckle stream
-- 完成后回调 `SPECKLE_UPLOAD_CALLBACK_URL`（默认 `http://localhost:6689/api/callback`），并关闭文档
+- 完成后回调 `SPECKLE_UPLOAD_CALLBACK_URL`（默认 `http://127.0.0.1:6689/api/callback`），并关闭文档
 - 使用 `ConverterRevit` + `Operations.Send` 完成 Speckle 上传
 - 生成 `SpeckleUpload.addin`（ClientId: `8eee0545-1923-46bf-a7aa-30f31f4dd7bd`）
 
@@ -45,3 +45,19 @@
 
 ## 2026-05-19 10:49
 - 启动日志输出程序集版本与 DLL 修改时间；CommitCreate 前记录 branchName/streamId
+
+## 2026-05-19 13:22
+- `CommitCreate` 失败时若 `Operations.Send` 已成功，回调仍返回 `objectId`；增强 GraphQL 错误日志
+
+## 2026-05-19 15:31
+- `POST /upload` 请求体固定按 UTF-8 解码，修复中文 `commitMessage` 在 Speckle 页面乱码
+- 回调 `POST /api/callback` JSON 字段改为 snake_case（`request_id`、`file_path`、`stream_id` 等）
+
+## 2026-05-19 15:43
+- 回调体增加 `branch_name`、`commit_message`（Speckle 成功/部分成功时为实际提交值）
+
+## 2026-05-19 15:54
+- 默认回调路径由 `/api/callback` 改为 `/api/speckle/upload/callback`（后于 16:02 按 speckle_sync 文档改回 `/api/callback`）
+
+## 2026-05-19 16:02
+- 对接 speckle_sync：`/upload` 与回调响应解析改为 lwhale `ret/msg/error`；支持请求体 `callbackUrl`；新增 `SPECKLE_SYNC.md`

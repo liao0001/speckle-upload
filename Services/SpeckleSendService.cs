@@ -1,3 +1,4 @@
+using System.Text;
 using Autodesk.Revit.DB;
 using Objects.Converter.Revit;
 using RevitSharedResources.Interfaces;
@@ -150,45 +151,79 @@ public static class SpeckleSendService
       throw new InvalidOperationException($"Speckle Operations.Send failed: {ex.Message}", ex);
     }
 
+    var commitMessage = ResolveCommitMessage(request, convertedCount);
     var commitInput = new CommitCreateInput
     {
       streamId = request.StreamId,
       objectId = objectId,
       branchName = string.IsNullOrWhiteSpace(request.BranchName) ? "main" : request.BranchName,
-      message =
-        request.CommitMessage
-        ?? $"Sent {convertedCount} physical objects via SpeckleUpload.",
+      message = commitMessage,
       sourceApplication = ConverterRevit.RevitAppName,
     };
 
-    string commitId;
     try
     {
       PluginLog.Step(
-      "Speckle",
-      $"SendPhysicalObjectsAsync: CommitCreate begin branchName={commitInput.branchName} streamId={commitInput.streamId}"
-    );
+        "Speckle",
+        $"SendPhysicalObjectsAsync: CommitCreate begin branchName={commitInput.branchName} streamId={commitInput.streamId} messageLen={commitMessage.Length}"
+      );
 #pragma warning disable CS0618
-      commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
+      var commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
 #pragma warning restore CS0618
       PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: CommitCreate end commitId={commitId}");
+
+      PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: end OK");
+      return new UploadCallbackPayload
+      {
+        RequestId = request.RequestId,
+        Success = true,
+        FilePath = request.FilePath,
+        StreamId = request.StreamId,
+        BranchName = commitInput.branchName,
+        CommitMessage = commitMessage,
+        ObjectId = objectId,
+        CommitId = commitId,
+        ObjectCount = convertedCount,
+      };
     }
     catch (Exception ex)
     {
-      PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: CommitCreate failed: {ex}");
-      throw new InvalidOperationException($"Speckle CommitCreate failed: {ex.Message}", ex);
-    }
+      LogCommitCreateFailure(ex, commitInput.branchName);
 
-    PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: end OK");
-    return new UploadCallbackPayload
+      // 对象已上传成功，仅创建 commit（挂到分支）失败
+      return new UploadCallbackPayload
+      {
+        RequestId = request.RequestId,
+        Success = false,
+        FilePath = request.FilePath,
+        StreamId = request.StreamId,
+        BranchName = commitInput.branchName,
+        CommitMessage = commitMessage,
+        ObjectId = objectId,
+        ObjectCount = convertedCount,
+        Error =
+          $"CommitCreate failed on branch \"{commitInput.branchName}\" (objects uploaded, objectId={objectId}): {ex.Message}",
+      };
+    }
+  }
+
+  private static string ResolveCommitMessage(UploadRequest request, int convertedCount)
+  {
+    var raw = string.IsNullOrWhiteSpace(request.CommitMessage)
+      ? $"Sent {convertedCount} physical objects via SpeckleUpload."
+      : request.CommitMessage;
+
+    var utf8Bytes = Encoding.UTF8.GetBytes(raw);
+    return Encoding.UTF8.GetString(utf8Bytes);
+  }
+
+  private static void LogCommitCreateFailure(Exception ex, string? branchName)
+  {
+    PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: CommitCreate failed branchName={branchName}: {ex.Message}");
+
+    if (ex is SpeckleGraphQLException gqlEx)
     {
-      RequestId = request.RequestId,
-      Success = true,
-      FilePath = request.FilePath,
-      StreamId = request.StreamId,
-      ObjectId = objectId,
-      CommitId = commitId,
-      ObjectCount = convertedCount,
-    };
+      PluginLog.Step("Speckle", $"CommitCreate GraphQL: {gqlEx}");
+    }
   }
 }

@@ -5,6 +5,7 @@ using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using SpeckleUpload.Models;
 using SpeckleUpload.Services;
+using PluginSettings = SpeckleUpload.PluginSettings;
 
 namespace SpeckleUpload.Http;
 
@@ -83,11 +84,13 @@ public sealed class HttpUploadServer : IDisposable
         PluginLog.Step("Http", $"ListenAsync: unhandled exception {ex}");
         if (context?.Response != null)
         {
-          await WriteJsonAsync(
-            context.Response,
-            HttpStatusCode.InternalServerError,
-            new { success = false, error = ex.Message }
-          ).ConfigureAwait(false);
+          await LwhaleJsonResponse
+            .WriteErrorAsync(
+              context.Response,
+              LwhaleJsonResponse.RetSystemError,
+              ex.Message
+            )
+            .ConfigureAwait(false);
         }
       }
     }
@@ -104,9 +107,8 @@ public sealed class HttpUploadServer : IDisposable
     if (request.HttpMethod == "GET" && (path == "" || path == "/health"))
     {
       PluginLog.Step("Http", "HandleRequest: health OK");
-      await WriteJsonAsync(
+      await WriteHealthJsonAsync(
         response,
-        HttpStatusCode.OK,
         new { status = "ok", port = PluginSettings.HttpPort }
       ).ConfigureAwait(false);
       return;
@@ -120,20 +122,19 @@ public sealed class HttpUploadServer : IDisposable
     }
 
     PluginLog.Step("Http", $"HandleRequest: 404 path={path}");
-    await WriteJsonAsync(
-      response,
-      HttpStatusCode.NotFound,
-      new { success = false, error = "Not found" }
-    ).ConfigureAwait(false);
+    await LwhaleJsonResponse
+      .WriteErrorAsync(response, LwhaleJsonResponse.RetSystemError, "Not found")
+      .ConfigureAwait(false);
   }
 
   private async Task HandleUploadAsync(HttpListenerRequest request, HttpListenerResponse response)
   {
-    PluginLog.Step("Http", "HandleUpload: reading body");
+    PluginLog.Step("Http", "HandleUpload: reading body (UTF-8)");
     string body;
-    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+    using (var ms = new MemoryStream())
     {
-      body = await reader.ReadToEndAsync().ConfigureAwait(false);
+      await request.InputStream.CopyToAsync(ms).ConfigureAwait(false);
+      body = Encoding.UTF8.GetString(ms.ToArray());
     }
 
     PluginLog.Step("Http", $"HandleUpload: body length={body.Length}");
@@ -147,61 +148,58 @@ public sealed class HttpUploadServer : IDisposable
     catch (Exception ex)
     {
       PluginLog.Step("Http", $"HandleUpload: JSON error {ex.Message}");
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.BadRequest,
-        new { success = false, error = $"Invalid JSON: {ex.Message}" }
-      ).ConfigureAwait(false);
+      await LwhaleJsonResponse
+        .WriteErrorAsync(
+          response,
+          LwhaleJsonResponse.RetInvalidParam,
+          $"Invalid JSON: {ex.Message}"
+        )
+        .ConfigureAwait(false);
       return;
     }
 
     if (uploadRequest == null)
     {
       PluginLog.Step("Http", "HandleUpload: body empty after deserialize");
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.BadRequest,
-        new { success = false, error = "Request body is empty." }
-      ).ConfigureAwait(false);
+      await LwhaleJsonResponse
+        .WriteErrorAsync(response, LwhaleJsonResponse.RetInvalidParam, "Request body is empty.")
+        .ConfigureAwait(false);
       return;
     }
 
     if (string.IsNullOrWhiteSpace(uploadRequest.FilePath))
     {
       PluginLog.Step("Http", "HandleUpload: validation fail filePath");
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.BadRequest,
-        new { success = false, error = "filePath is required." }
-      ).ConfigureAwait(false);
+      await LwhaleJsonResponse
+        .WriteErrorAsync(response, LwhaleJsonResponse.RetInvalidParam, "filePath is required.")
+        .ConfigureAwait(false);
       return;
     }
 
     if (string.IsNullOrWhiteSpace(uploadRequest.StreamId))
     {
       PluginLog.Step("Http", "HandleUpload: validation fail streamId");
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.BadRequest,
-        new { success = false, error = "streamId is required." }
-      ).ConfigureAwait(false);
+      await LwhaleJsonResponse
+        .WriteErrorAsync(response, LwhaleJsonResponse.RetInvalidParam, "streamId is required.")
+        .ConfigureAwait(false);
       return;
     }
 
     if (string.IsNullOrWhiteSpace(uploadRequest.Token))
     {
       PluginLog.Step("Http", "HandleUpload: validation fail token");
-      await WriteJsonAsync(
-        response,
-        HttpStatusCode.BadRequest,
-        new { success = false, error = "token is required." }
-      ).ConfigureAwait(false);
+      await LwhaleJsonResponse
+        .WriteErrorAsync(response, LwhaleJsonResponse.RetInvalidParam, "token is required.")
+        .ConfigureAwait(false);
       return;
     }
 
+    var callbackTarget = string.IsNullOrWhiteSpace(uploadRequest.CallbackUrl)
+      ? PluginSettings.CallbackUrl
+      : uploadRequest.CallbackUrl.Trim();
     PluginLog.Step(
       "Http",
-      $"HandleUpload: validated filePath=\"{uploadRequest.FilePath}\" streamId=\"{uploadRequest.StreamId}\" serverUrl=\"{uploadRequest.ServerUrl}\""
+      $"HandleUpload: validated filePath=\"{uploadRequest.FilePath}\" streamId=\"{uploadRequest.StreamId}\" serverUrl=\"{uploadRequest.ServerUrl}\" callbackUrl=\"{callbackTarget}\""
     );
 
     if (string.IsNullOrWhiteSpace(uploadRequest.RequestId))
@@ -221,51 +219,38 @@ public sealed class HttpUploadServer : IDisposable
     switch (enqueueResult.Status)
     {
       case UploadEnqueueStatus.Busy:
-        PluginLog.Step("Http", "HandleUpload: enqueue Busy -> 409");
-        await WriteJsonAsync(
-          response,
-          HttpStatusCode.Conflict,
-          new { success = false, error = "Another upload is in progress." }
-        ).ConfigureAwait(false);
+        PluginLog.Step("Http", "HandleUpload: enqueue Busy -> ret 500");
+        await LwhaleJsonResponse
+          .WriteErrorAsync(
+            response,
+            LwhaleJsonResponse.RetSystemError,
+            "Another upload is in progress."
+          )
+          .ConfigureAwait(false);
         return;
 
       case UploadEnqueueStatus.Denied:
-        PluginLog.Step("Http", $"HandleUpload: enqueue Denied -> 503 msg={enqueueResult.Message}");
-        await WriteJsonAsync(
-          response,
-          HttpStatusCode.ServiceUnavailable,
-          new { success = false, error = enqueueResult.Message }
-        ).ConfigureAwait(false);
+        PluginLog.Step("Http", $"HandleUpload: enqueue Denied -> ret 500 msg={enqueueResult.Message}");
+        await LwhaleJsonResponse
+          .WriteErrorAsync(
+            response,
+            LwhaleJsonResponse.RetSystemError,
+            enqueueResult.Message ?? "Upload denied."
+          )
+          .ConfigureAwait(false);
         return;
     }
 
-    PluginLog.Step("Http", $"HandleUpload: enqueue {enqueueResult.Status} -> 202");
-    await WriteJsonAsync(
-      response,
-      HttpStatusCode.Accepted,
-      new
-      {
-        success = true,
-        accepted = true,
-        requestId = uploadRequest.RequestId,
-        queueStatus = enqueueResult.Status.ToString(),
-        message =
-          enqueueResult.Message
-          ?? "Upload queued. Result will be sent to callback URL.",
-      }
-    ).ConfigureAwait(false);
+    PluginLog.Step("Http", $"HandleUpload: enqueue {enqueueResult.Status} -> ret 0");
+    await LwhaleJsonResponse.WriteSuccessAsync(response, HttpStatusCode.OK, null).ConfigureAwait(false);
   }
 
-  private static async Task WriteJsonAsync(
-    HttpListenerResponse response,
-    HttpStatusCode statusCode,
-    object payload
-  )
+  private static async Task WriteHealthJsonAsync(HttpListenerResponse response, object payload)
   {
     var json = JsonConvert.SerializeObject(payload);
     var buffer = Encoding.UTF8.GetBytes(json);
 
-    response.StatusCode = (int)statusCode;
+    response.StatusCode = (int)HttpStatusCode.OK;
     response.ContentType = "application/json; charset=utf-8";
     response.ContentEncoding = Encoding.UTF8;
     response.ContentLength64 = buffer.Length;

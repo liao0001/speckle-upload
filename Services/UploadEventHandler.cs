@@ -155,6 +155,8 @@ public sealed class UploadEventHandler : IExternalEventHandler
         Success = false,
         FilePath = request.FilePath,
         StreamId = request.StreamId,
+        BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? "main" : request.BranchName,
+        CommitMessage = request.CommitMessage,
         Error = ex.Message,
       };
     }
@@ -162,7 +164,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
     try
     {
       PluginLog.Step("UploadHandler", "Execute: step Callback");
-      CallbackService.SendAsync(payload).GetAwaiter().GetResult();
+      CallbackService.SendAsync(payload, request.CallbackUrl).GetAwaiter().GetResult();
       PluginLog.Step("UploadHandler", $"Execute: callback OK success={payload.Success}");
     }
     catch (Exception ex)
