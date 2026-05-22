@@ -61,3 +61,6 @@
 
 ## 2026-05-19 16:02
 - 对接 speckle_sync：`/upload` 与回调响应解析改为 lwhale `ret/msg/error`；支持请求体 `callbackUrl`；新增 `SPECKLE_SYNC.md`
+
+## 2026-05-22 22:09
+- 修复 `TryCloseDocument`：`Close()` 后勿再访问 `Title`，关闭前缓存文档标签，避免 `InvalidObjectException` 中断上传

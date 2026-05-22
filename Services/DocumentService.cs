@@ -12,27 +12,21 @@ public static class DocumentService
   /// </summary>
   public static void CloseOtherDocumentsExcept(UIApplication uiApp, Document keepOpen)
   {
-    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: begin keep=\"{keepOpen.Title}\" path=\"{keepOpen.PathName}\"");
+    var keepLabel = SafeDocumentLabel(keepOpen);
+    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: begin keep={keepLabel}");
 
-    var documents = uiApp.Application.Documents.Cast<Document>().ToList();
-    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: open count={documents.Count}");
+    var toClose = uiApp
+      .Application.Documents.Cast<Document>()
+      .Where(document => !document.IsLinked && !IsSameDocument(document, keepOpen))
+      .Select(document => new DocumentCloseTarget(document, SafeDocumentLabel(document)))
+      .ToList();
 
-    foreach (var document in documents)
+    PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: open count={uiApp.Application.Documents.Size} closeOthers={toClose.Count}");
+
+    foreach (var target in toClose)
     {
-      if (document.IsLinked)
-      {
-        PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: skip linked \"{document.Title}\"");
-        continue;
-      }
-
-      if (IsSameDocument(document, keepOpen))
-      {
-        PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: skip keep-open \"{document.Title}\"");
-        continue;
-      }
-
-      PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: closing \"{document.Title}\" path=\"{document.PathName}\"");
-      TryCloseDocument(document);
+      PluginLog.Step("Doc", $"CloseOtherDocumentsExcept: closing {target.Label}");
+      TryCloseDocument(target.Document, target.Label);
     }
 
     PluginLog.Step("Doc", "CloseOtherDocumentsExcept: end");
@@ -67,19 +61,45 @@ public static class DocumentService
     return opened;
   }
 
-  public static bool TryCloseDocument(Document document)
+  public static bool TryCloseDocument(Document document, string? label = null)
   {
+    var docLabel = label ?? SafeDocumentLabel(document);
     try
     {
       document.Close(false);
-      PluginLog.Step("Doc", $"TryCloseDocument: closed \"{document.Title}\"");
+      PluginLog.Step("Doc", $"TryCloseDocument: closed {docLabel}");
       return true;
     }
     catch (Exception ex)
     {
-      PluginLog.Step("Doc", $"TryCloseDocument: failed \"{document.Title}\": {ex.GetType().Name} {ex.Message}");
+      PluginLog.Step("Doc", $"TryCloseDocument: failed {docLabel}: {ex.GetType().Name} {ex.Message}");
       return false;
     }
+  }
+
+  private static string SafeDocumentLabel(Document document)
+  {
+    try
+    {
+      var path = string.IsNullOrWhiteSpace(document.PathName) ? "(no path)" : document.PathName;
+      return $"\"{document.Title}\" path=\"{path}\"";
+    }
+    catch (Exception ex)
+    {
+      return $"(document unavailable: {ex.GetType().Name})";
+    }
+  }
+
+  private readonly struct DocumentCloseTarget
+  {
+    public DocumentCloseTarget(Document document, string label)
+    {
+      Document = document;
+      Label = label;
+    }
+
+    public Document Document { get; }
+    public string Label { get; }
   }
 
   private static string? NormalizePath(string? path)
@@ -137,12 +157,13 @@ public static class DocumentService
     {
       if (document.IsLinked)
       {
-        PluginLog.Step("Doc", $"CloseAllDocuments: skip linked document title=\"{document.Title}\"");
+        PluginLog.Step("Doc", $"CloseAllDocuments: skip linked {SafeDocumentLabel(document)}");
         continue;
       }
 
-      PluginLog.Step("Doc", $"CloseAllDocuments: closing document title=\"{document.Title}\" path=\"{document.PathName}\"");
-      TryCloseDocument(document);
+      var label = SafeDocumentLabel(document);
+      PluginLog.Step("Doc", $"CloseAllDocuments: closing {label}");
+      TryCloseDocument(document, label);
     }
 
     PluginLog.Step("Doc", "CloseAllDocuments: end");
@@ -196,8 +217,9 @@ public static class DocumentService
       return;
     }
 
-    PluginLog.Step("Doc", $"CloseActiveDocument: closing title=\"{activeDoc.Title}\"");
-    if (!TryCloseDocument(activeDoc))
+    var label = SafeDocumentLabel(activeDoc);
+    PluginLog.Step("Doc", $"CloseActiveDocument: closing {label}");
+    if (!TryCloseDocument(activeDoc, label))
     {
       PluginLog.Step("Doc", "CloseActiveDocument: TryCloseDocument returned false (e.g. still active in this API context)");
     }
