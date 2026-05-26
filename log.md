@@ -76,3 +76,6 @@
 
 ## 2026-05-26 16:05
 - 修复 2024 编译：`TaskDialogShowingEventArgs` 使用基类 `Message`；`OverrideResult` 改用整型常量替代 internal 的 `TaskDialogResult`
+
+## 2026-05-26 16:12
+- 修复 2024 编译：`Message` 改从 `TaskDialogShowingEventArgs` / `MessageBoxShowingEventArgs` 读取（Nice3point 基类无此属性）

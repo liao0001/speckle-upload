@@ -40,7 +40,7 @@ public static class RevitOpenDialogSuppression
       $"DialogBoxShowing: id={args.DialogId} type={args.GetType().Name} text={Truncate(message, 500)}"
     );
 
-    if (!ShouldAutoDismiss(message))
+    if (!ShouldAutoDismiss(args, message))
     {
       return;
     }
@@ -55,19 +55,18 @@ public static class RevitOpenDialogSuppression
     }
   }
 
-  private static bool ShouldAutoDismiss(string message)
+  private static bool ShouldAutoDismiss(DialogBoxShowingEventArgs args, string message)
   {
     if (PluginSettings.AutoDismissAllOpenDialogs)
     {
       return true;
     }
 
-    if (string.IsNullOrWhiteSpace(message))
+    var text = $"{message} {args.DialogId}".ToLowerInvariant();
+    if (string.IsNullOrWhiteSpace(text))
     {
       return false;
     }
-
-    var text = message.ToLowerInvariant();
 
     // 跨版本升级后常见的「图元不兼容 / 无法复制」类提示
     string[] keywords =
@@ -110,8 +109,15 @@ public static class RevitOpenDialogSuppression
 
   private static string CollectMessage(DialogBoxShowingEventArgs args)
   {
-    // Message 在 DialogBoxShowingEventArgs 基类上，2022/2024 均可用
-    return args.Message ?? string.Empty;
+    switch (args)
+    {
+      case TaskDialogShowingEventArgs task:
+        return task.Message ?? string.Empty;
+      case MessageBoxShowingEventArgs messageBox:
+        return messageBox.Message ?? string.Empty;
+      default:
+        return string.Empty;
+    }
   }
 
   private static string Truncate(string value, int maxLen)
