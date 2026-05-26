@@ -1,4 +1,3 @@
-using System.Text;
 using Autodesk.Revit.UI.Events;
 
 namespace SpeckleUpload.Services;
@@ -8,6 +7,10 @@ namespace SpeckleUpload.Services;
 /// </summary>
 public static class RevitOpenDialogSuppression
 {
+  // Revit TaskDialogResult 在部分 API 包中为 internal，使用与官方枚举一致的整型值
+  private const int TaskDialogClose = 8;
+  private const int MessageBoxOk = 1;
+
   private static DateTime _armedUntilUtc = DateTime.MinValue;
 
   public static void ArmForOpen(TimeSpan? duration = null)
@@ -92,12 +95,12 @@ public static class RevitOpenDialogSuppression
     switch (args)
     {
       case TaskDialogShowingEventArgs task:
-        // 「关闭」多为 Close；部分对话框唯一按钮映射为 Ok
-        task.OverrideResult((int)TaskDialogResult.Close);
+        // 「关闭」多为 Close(8)；部分对话框唯一按钮映射为 Ok(1)
+        task.OverrideResult(TaskDialogClose);
         return true;
 
       case MessageBoxShowingEventArgs messageBox:
-        messageBox.OverrideResult(1);
+        messageBox.OverrideResult(MessageBoxOk);
         return true;
 
       default:
@@ -107,35 +110,8 @@ public static class RevitOpenDialogSuppression
 
   private static string CollectMessage(DialogBoxShowingEventArgs args)
   {
-    var sb = new StringBuilder();
-
-    if (args is TaskDialogShowingEventArgs task)
-    {
-      AppendLine(sb, task.MainInstruction);
-      AppendLine(sb, task.MainContent);
-    }
-
-    if (args is MessageBoxShowingEventArgs messageBox)
-    {
-      AppendLine(sb, messageBox.Message);
-    }
-
-    return sb.ToString();
-  }
-
-  private static void AppendLine(StringBuilder sb, string? value)
-  {
-    if (string.IsNullOrWhiteSpace(value))
-    {
-      return;
-    }
-
-    if (sb.Length > 0)
-    {
-      sb.Append(' ');
-    }
-
-    sb.Append(value.Trim());
+    // Message 在 DialogBoxShowingEventArgs 基类上，2022/2024 均可用
+    return args.Message ?? string.Empty;
   }
 
   private static string Truncate(string value, int maxLen)

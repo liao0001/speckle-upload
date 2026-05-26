@@ -73,3 +73,6 @@
 
 ## 2026-05-26 15:57
 - 打开 RVT 时订阅 `DialogBoxShowing`，自动关闭跨版本升级后的「图元不兼容」等弹窗；可配置抑制时长与 `SPECKLE_UPLOAD_AUTO_DISMISS_ALL_OPEN_DIALOGS`
+
+## 2026-05-26 16:05
+- 修复 2024 编译：`TaskDialogShowingEventArgs` 使用基类 `Message`；`OverrideResult` 改用整型常量替代 internal 的 `TaskDialogResult`
