@@ -67,3 +67,6 @@
 
 ## 2026-05-26 15:03
 - 支持 Revit 2024 构建：`-p:RevitVersion=2024` + `Speckle.Objects.Converter.Revit2024`；CI 矩阵产出 `speckleupload-revit2024-install`；`Install-SpeckleUpload-2024.cmd`、`SpeckleUpload.Revit2024.addin`
+
+## 2026-05-26 15:11
+- 2024 CI 编译失败：补充 `Nice3point.Revit.Api.RevitAPI` / `RevitAPIUI`（`$(RevitVersion).*`），因 Converter.Revit2024 不暴露 Autodesk 命名空间

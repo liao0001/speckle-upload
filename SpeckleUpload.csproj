@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Revit API（CI 编译用；运行时由 Revit 提供，不随插件复制） -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitVersion)' == '2022'">
