@@ -3,17 +3,19 @@
 # 或在 PowerShell 中执行: powershell -NoProfile -ExecutionPolicy Bypass -File ".\Install-SpeckleUpload.ps1"
 <#
 .SYNOPSIS
-  将当前目录（解压后的 SpeckleUpload 制品）部署到 Revit 2022 用户插件目录。
+  将当前目录（解压后的 SpeckleUpload 制品）部署到 Revit 用户插件目录。
+
+.PARAMETER RevitYear
+  Revit 版本年号：2022 或 2024。默认 2022。
 
 .DESCRIPTION
-  1. 当前脚本所在目录 = 源目录（绝对路径）
-  2. 清空目标插件目录后，将其余文件/文件夹移入目标目录（不移动本脚本自身）
-  3. 对插件目录递归 Unblock-File
-  4. 完成后提示并等待按键
-
-  目标目录默认：%APPDATA%\Autodesk\Revit\Addins\2022\SpeckleUpload
-  与 C:\Users\<用户名>\AppData\Roaming\... 等价；若需固定路径可修改下方 $PluginDir。
+  目标目录：%APPDATA%\Autodesk\Revit\Addins\{RevitYear}\SpeckleUpload
 #>
+
+param(
+  [ValidateSet("2022", "2024")]
+  [string]$RevitYear = "2022"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -23,8 +25,8 @@ if ([string]::IsNullOrWhiteSpace($SourceDir)) {
   $SourceDir = $PSScriptRoot
 }
 
-# 目标插件目录（与说明.md 中示例一致：Roaming\...\SpeckleUpload）
-$PluginDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\2022\SpeckleUpload"
+# 目标插件目录（与说明.md 中示例一致：Roaming\...\Addins\{year}\SpeckleUpload）
+$PluginDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$RevitYear\SpeckleUpload"
 
 # 本脚本完整路径，移动时排除自身
 $ThisScriptPath = $MyInvocation.MyCommand.Path
@@ -32,6 +34,7 @@ if ([string]::IsNullOrWhiteSpace($ThisScriptPath)) {
   $ThisScriptPath = $PSCommandPath
 }
 
+Write-Host "Revit 版本: $RevitYear"
 Write-Host "源目录: $SourceDir"
 Write-Host "目标目录: $PluginDir"
 Write-Host ""

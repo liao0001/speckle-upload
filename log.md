@@ -64,3 +64,6 @@
 
 ## 2026-05-22 22:09
 - 修复 `TryCloseDocument`：`Close()` 后勿再访问 `Title`，关闭前缓存文档标签，避免 `InvalidObjectException` 中断上传
+
+## 2026-05-26 15:03
+- 支持 Revit 2024 构建：`-p:RevitVersion=2024` + `Speckle.Objects.Converter.Revit2024`；CI 矩阵产出 `speckleupload-revit2024-install`；`Install-SpeckleUpload-2024.cmd`、`SpeckleUpload.Revit2024.addin`

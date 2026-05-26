@@ -1,15 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- 构建时指定：dotnet build -p:RevitVersion=2024 -->
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <RootNamespace>SpeckleUpload</RootNamespace>
     <AssemblyName>SpeckleUpload</AssemblyName>
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <BaseOutputPath>bin\$(RevitVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2022'">
+    <DefineConstants>$(DefineConstants);REVIT2022</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RevitVersion)' == '2024'">
+    <DefineConstants>$(DefineConstants);REVIT2024</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RevitVersion)' == '2022'">
     <PackageReference Include="Speckle.Objects.Converter.Revit2022" Version="2.23.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RevitVersion)' == '2024'">
+    <PackageReference Include="Speckle.Objects.Converter.Revit2024" Version="2.23.2" />
   </ItemGroup>
 </Project>

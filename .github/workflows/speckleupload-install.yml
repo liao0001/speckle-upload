@@ -10,6 +10,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        revit_version: ["2022", "2024"]
 
     steps:
       - name: Checkout
@@ -21,26 +25,38 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore SpeckleUpload.sln
+        run: dotnet restore SpeckleUpload.sln -p:RevitVersion=${{ matrix.revit_version }}
 
       - name: Build
-        run: dotnet build SpeckleUpload.sln -c Release --no-restore
+        run: dotnet build SpeckleUpload.sln -c Release --no-restore -p:RevitVersion=${{ matrix.revit_version }}
 
       - name: Stage install bundle
         shell: pwsh
+        env:
+          REVIT_VERSION: ${{ matrix.revit_version }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
-          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\Release\net48"
+          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\$env:REVIT_VERSION\Release\net48"
           New-Item -ItemType Directory -Path $out -Force | Out-Null
           Copy-Item -Path (Join-Path $bin "*") -Destination $out -Recurse -Force
-          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
+
+          if ($env:REVIT_VERSION -eq "2024") {
+            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.Revit2024.addin") -Destination (Join-Path $out "SpeckleUpload.addin") -Force
+          } else {
+            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
+          }
+
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.ps1") -Destination $out -Force
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.cmd") -Destination $out -Force
-          Write-Host "Bundle contents:"
+          if ($env:REVIT_VERSION -eq "2024") {
+            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload-2024.cmd") -Destination $out -Force
+          }
+
+          Write-Host "Bundle contents ($env:REVIT_VERSION):"
           Get-ChildItem $out | ForEach-Object { Write-Host $_.Name }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: speckleupload-revit2022-install
+          name: speckleupload-revit${{ matrix.revit_version }}-install
           path: install-bundle/

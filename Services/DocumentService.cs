@@ -119,6 +119,15 @@ public static class DocumentService
     }
   }
 
+  private static long ElementIdToLong(ElementId id)
+  {
+#if REVIT2024
+    return id.Value;
+#else
+    return id.IntegerValue;
+#endif
+  }
+
   private static bool PathsEqual(string? a, string? b)
   {
     if (a == null || b == null)
@@ -264,7 +273,7 @@ public static class DocumentService
     }
 
     var activeDesignOption = DesignOption.GetActiveDesignOptionId(document);
-    PluginLog.Step("Doc", $"FilterHiddenDesignOptions: activeDesignOption id={activeDesignOption.IntegerValue}");
+    PluginLog.Step("Doc", $"FilterHiddenDesignOptions: activeDesignOption id={ElementIdToLong(activeDesignOption)}");
 
     if (activeDesignOption != ElementId.InvalidElementId)
     {
