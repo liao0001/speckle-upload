@@ -70,3 +70,6 @@
 
 ## 2026-05-26 15:11
 - 2024 CI 编译失败：补充 `Nice3point.Revit.Api.RevitAPI` / `RevitAPIUI`（`$(RevitVersion).*`），因 Converter.Revit2024 不暴露 Autodesk 命名空间
+
+## 2026-05-26 15:57
+- 打开 RVT 时订阅 `DialogBoxShowing`，自动关闭跨版本升级后的「图元不兼容」等弹窗；可配置抑制时长与 `SPECKLE_UPLOAD_AUTO_DISMISS_ALL_OPEN_DIALOGS`

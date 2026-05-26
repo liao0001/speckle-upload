@@ -196,8 +196,17 @@ public static class DocumentService
       Audit = false,
     };
 
-    PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument");
-    uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
+    PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument (dialog suppression armed)");
+    RevitOpenDialogSuppression.ArmForOpen();
+    try
+    {
+      uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
+    }
+    finally
+    {
+      // 升级后「不兼容图元」等弹窗可能在 Open 返回后才出现，保持 armed 直至超时
+    }
+
     var activeDoc = uiApp.ActiveUIDocument?.Document;
 
     if (activeDoc == null)

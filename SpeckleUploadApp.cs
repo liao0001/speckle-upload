@@ -30,8 +30,9 @@ public class SpeckleUploadApp : IExternalApplication
 
     if (_uiApp != null)
     {
-      PluginLog.Step("App", "OnShutdown: unregister Idling");
+      PluginLog.Step("App", "OnShutdown: unregister Idling / DialogBoxShowing");
       _uiApp.Idling -= OnIdling;
+      _uiApp.DialogBoxShowing -= OnDialogBoxShowing;
     }
 
     PluginLog.Step("App", "OnShutdown: dispose HTTP server");
@@ -53,6 +54,7 @@ public class SpeckleUploadApp : IExternalApplication
 
     PluginLog.Step("App", "OnApplicationInitialized: Idling subscribed");
     _uiApp.Idling += OnIdling;
+    _uiApp.DialogBoxShowing += OnDialogBoxShowing;
 
     _server = new HttpUploadServer(_handler);
     _server.Start();
@@ -70,5 +72,10 @@ public class SpeckleUploadApp : IExternalApplication
   private void OnIdling(object? sender, IdlingEventArgs e)
   {
     _handler?.OnIdling();
+  }
+
+  private static void OnDialogBoxShowing(object sender, DialogBoxShowingEventArgs e)
+  {
+    RevitOpenDialogSuppression.Handle(e);
   }
 }
