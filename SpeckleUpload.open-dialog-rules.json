@@ -16,17 +16,18 @@
   "docWarnEmptyMessageSequence": {
     "tryButtons": [
       {
-        "label": "确定（第1个弹窗-警告）",
-        "click": "docWarnOk",
-        "clickResult": 4
-      },
-      {
-        "label": "取消连接图元（第2个弹窗-连接）",
+        "label": "取消连接图元（第1个弹窗-连接）",
+        "buttonContains": ["取消连接图元", "取消关联图元", "Unjoin Elements"],
         "click": "commandLink1",
         "clickResult": 1001
       },
       {
-        "label": "关闭（第3个及以后）",
+        "label": "确定（第2个弹窗-警告）",
+        "click": "docWarnOk",
+        "clickResult": 4
+      },
+      {
+        "label": "关闭（第3个弹窗）",
         "click": "close",
         "clickResult": 8
       }

@@ -121,3 +121,9 @@
 ## 2026-05-27 19:38
 - 修复 DocWarn DialogBox 误用 code 1/6 导致 `Opening was canceled`：DialogBox 确定改用 `DialogResult.Retry(4)`（`docWarnOk`）
 - `OverrideResult` 检查返回值 `accepted`；每个弹窗只代点一次；日志增加 `DialogSurface`
+
+## 2026-05-27 19:52
+- DocWarn DialogBox：`OverrideResult` 即使 accepted 仍会取消打开，改为 Win32 后台点击真实按钮（`Win32DialogClicker`），打开期间不再对 DocWarn DialogBox 调用 OverrideResult
+
+## 2026-05-27 19:55
+- `docWarnEmptyMessageSequence` 顺序改为与实际一致：取消连接/关联图元 → 确定 → 关闭；Win32 候选增加「取消关联图元」
