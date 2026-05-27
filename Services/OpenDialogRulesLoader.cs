@@ -101,7 +101,10 @@ public static class OpenDialogRulesLoader
         },
       ],
       UnmatchedFallback = CreateDefaultUnmatchedFallback(),
-      DocWarnEmptyMessageSequence = CreateDefaultDocWarnEmptyMessageSequence(),
+      DocWarnEmptyMessageSequence = new OpenDialogUnmatchedFallback
+      {
+        TryButtons = CreateDefaultDocWarnEmptyMessageSequence(),
+      },
     };
   }
 
@@ -127,14 +130,6 @@ public static class OpenDialogRulesLoader
         ClickResult = 8,
       },
     ];
-  }
-
-  private static OpenDialogUnmatchedFallback CreateDefaultDocWarnEmptyMessageSequence()
-  {
-    return new OpenDialogUnmatchedFallback
-    {
-      TryButtons = CreateDefaultDocWarnEmptyMessageSequence(),
-    };
   }
 
   private static OpenDialogUnmatchedFallback CreateDefaultUnmatchedFallback()

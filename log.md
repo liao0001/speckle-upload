@@ -114,3 +114,6 @@
 ## 2026-05-27 19:23
 - 修复 DocWarn 无正文时误点 Ok(1) 导致 `Opening was canceled`：反射 DeepText；无正文时按 `docWarnEmptyMessageSequence` 顺序代点（默认 确定→取消连接图元→关闭）
 - 确定类弹窗优先尝试 code 6 再 1；移除 DocWarn 假按钮注入以免误判
+
+## 2026-05-27 19:27
+- 修复 CI 编译错误：删除重复的 `CreateDefaultDocWarnEmptyMessageSequence` 重载
