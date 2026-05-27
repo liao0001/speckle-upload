@@ -249,11 +249,6 @@ public static class RevitOpenDialogSuppression
     return false;
   }
 
-  private static readonly string[] DocWarnOkButtonCandidates = ["确定", "OK"];
-  private static readonly string[] DocWarnUnjoinButtonCandidates =
-    ["取消连接图元", "取消关联图元", "Unjoin Elements"];
-  private static readonly string[] DocWarnCloseButtonCandidates = ["关闭", "Close"];
-
   private static bool TryHandleDocWarnByDialogId(
     DialogBoxShowingEventArgs args,
     string dialogId,
@@ -267,7 +262,8 @@ public static class RevitOpenDialogSuppression
       ContainsNormalized(text, "无法使图元保持连接")
       || ContainsNormalized(text, "不能忽略")
       || ContainsNormalized(text, "cannot keep elements joined")
-      || ContainsNormalized(text, "unjoin elements");
+      || ContainsNormalized(text, "unjoin elements")
+      || ContainsNormalized(text, "取消关联图元");
     var isWarnDialog =
       ContainsNormalized(text, "不能创建放样")
       || ContainsNormalized(text, "删除图元")
@@ -284,114 +280,22 @@ public static class RevitOpenDialogSuppression
       PluginLog.Step("Doc", $"DocWarn 专用: DialogId={dialogId}，按正文启发式处理");
     }
 
-    var useWin32 = isDocWarnId && GetDialogSurfaceKind(args) == "dialogbox";
-    if (useWin32)
-    {
-      PluginLog.Step("Doc", "DocWarn 专用: DialogBox 类型，使用 Win32 点击（不用 OverrideResult）");
-    }
-
     if (HasMeaningfulDialogText(text))
     {
       if (isJoinError)
       {
-        return useWin32
-          ? ScheduleDocWarnWin32Click(null, DocWarnUnjoinButtonCandidates, "正文-连接错误")
-          : TryDocWarnUnjoin(args, "正文识别为连接错误");
+        return TryDocWarnUnjoin(args, "正文识别为连接错误");
       }
 
-      return useWin32
-        ? ScheduleDocWarnWin32Click(null, DocWarnOkButtonCandidates, "正文-确定")
-        : TryDocWarnOk(args, isWarnDialog ? "正文识别为警告/族错误" : "DocWarn 有正文，默认确定");
+      return TryDocWarnOk(args, isWarnDialog ? "正文识别为警告/族错误" : "DocWarn 有正文，默认确定");
     }
 
     _docWarnSequenceIndex++;
     PluginLog.Step(
       "Doc",
-      $"DocWarn 专用: API 无可用正文，按出现顺序第 {_docWarnSequenceIndex} 个弹窗代点"
+      $"DocWarn 专用: API 无可用正文，按出现顺序第 {_docWarnSequenceIndex} 个弹窗 OverrideResult"
     );
-
-    var sequence = config.DocWarnEmptyMessageSequence.TryButtons;
-    if (sequence.Count == 0)
-    {
-      sequence = OpenDialogRulesLoader.CreateDefaultDocWarnEmptyMessageSequence();
-    }
-
-    var entryIndex = Math.Min(_docWarnSequenceIndex - 1, sequence.Count - 1);
-    var entry = sequence[entryIndex];
-
-    if (useWin32)
-    {
-      return ScheduleDocWarnWin32Click(entry, Array.Empty<string>(), $"顺序第{_docWarnSequenceIndex}个");
-    }
-
     return TryDocWarnSequenceEntry(args, config, _docWarnSequenceIndex);
-  }
-
-  private static bool ScheduleDocWarnWin32Click(
-    OpenDialogFallbackButton? entry,
-    IReadOnlyList<string> fallbackCandidates,
-    string reason
-  )
-  {
-    var candidates = BuildWin32ButtonCandidates(entry, fallbackCandidates);
-    var candidateText = string.Join("|", candidates);
-
-    Task.Run(() =>
-    {
-      PluginLog.Step("Doc", $"Win32: 开始查找按钮 ({reason}) candidates={candidateText}");
-      if (Win32DialogClicker.TryClickButton(candidates, 45000, out var matched))
-      {
-        PluginLog.Step("Doc", $"Win32: 已点击 [{matched}] ({reason})");
-      }
-      else
-      {
-        PluginLog.Step("Doc", $"Win32: 超时未找到按钮 ({reason}) candidates={candidateText}");
-      }
-    });
-
-    LogMatchResult(true, $"DocWarn Win32 已调度 ({reason})，候选: {candidateText}");
-    return true;
-  }
-
-  private static List<string> BuildWin32ButtonCandidates(
-    OpenDialogFallbackButton? entry,
-    IReadOnlyList<string> fallbackCandidates
-  )
-  {
-    var candidates = new List<string>();
-    if (entry != null)
-    {
-      if (!string.IsNullOrWhiteSpace(entry.Label))
-      {
-        candidates.Add(entry.Label);
-      }
-
-      candidates.AddRange(entry.ButtonContains);
-      candidates.AddRange(GetDefaultWin32CandidatesForClick(entry.Click));
-    }
-
-    candidates.AddRange(fallbackCandidates);
-    return candidates
-      .Where(s => !string.IsNullOrWhiteSpace(s))
-      .Distinct(StringComparer.OrdinalIgnoreCase)
-      .ToList();
-  }
-
-  private static IEnumerable<string> GetDefaultWin32CandidatesForClick(string click)
-  {
-    switch (click.Trim().ToLowerInvariant())
-    {
-      case "ok":
-      case "docwarnok":
-        return DocWarnOkButtonCandidates;
-      case "commandlink1":
-      case "unjoin":
-        return DocWarnUnjoinButtonCandidates;
-      case "close":
-        return DocWarnCloseButtonCandidates;
-      default:
-        return Array.Empty<string>();
-    }
   }
 
   private static bool HasMeaningfulDialogText(string normalizedCombined)
