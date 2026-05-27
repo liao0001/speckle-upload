@@ -1,5 +1,6 @@
 {
   "never": {
+    "titleContains": [],
     "messageContains": [
       "取消升级",
       "cancel upgrade",
@@ -15,46 +16,55 @@
   "rules": [
     {
       "name": "fig2-unjoin-elements",
-      "messageContains": [
-        "无法使图元保持连接",
-        "不能忽略",
-        "cannot keep elements joined",
-        "cannot be ignored"
+      "titleContains": ["错误 - 不能忽略", "错误- 不能忽略"],
+      "messageContains": ["无法使图元保持连接", "cannot keep elements joined"],
+      "buttonActions": [
+        {
+          "buttonContains": ["取消连接图元", "Unjoin Elements"],
+          "click": "commandLink1"
+        }
       ],
-      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
-      "click": "commandLink1",
-      "dialogTypes": ["task"]
-    },
-    {
-      "name": "fig3-structural-analysis-upgrade-close",
-      "messageContains": [
-        "结构分析模型升级",
-        "分析图元相关的注释",
-        "已修改或丢失",
-        "analytical"
-      ],
-      "messageNotContains": ["取消升级", "cancel upgrade"],
-      "click": "close",
       "dialogTypes": ["task", "messagebox"]
     },
     {
       "name": "fig1-family-warning-ok",
+      "titleContains": [
+        "警告 — 0 错误，3 警告",
+        "警告 - 0 错误，3 警告",
+        "警告 — 0 错误",
+        "警告 - 0 错误"
+      ],
       "messageContains": [
-        "警告",
-        "0 错误",
+        "族 “防撞侧石-样式一” 中出现错误但已自动解决，可能需要族创建者审阅",
         "不能创建放样",
-        "删除图元",
-        "自动解决"
+        "错误解决方法: 删除图元"
       ],
       "messageNotContains": [
         "无法使图元保持连接",
         "不能忽略",
-        "结构分析模型升级",
-        "取消升级"
+        "结构分析模型升级"
       ],
-      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
-      "click": "ok",
-      "dialogTypes": ["task"]
+      "buttonActions": [
+        {
+          "buttonContains": ["确定", "OK"],
+          "click": "ok"
+        }
+      ],
+      "dialogTypes": ["task", "messagebox"]
+    },
+    {
+      "name": "fig3-structural-analysis-upgrade-close",
+      "titleContains": ["结构分析模型升级"],
+      "messageContains": [
+        "在升级过程中，某些与分析图元相关的注释、明细表、视图模板、过滤器和视图可能已修改或丢失"
+      ],
+      "buttonActions": [
+        {
+          "buttonContains": ["关闭", "Close"],
+          "click": "close"
+        }
+      ],
+      "dialogTypes": ["task", "messagebox"]
     },
     {
       "name": "incompatible-elements-close",
@@ -63,10 +73,8 @@
         "incompatib",
         "无法复制",
         "不能复制",
-        "未能复制",
         "could not be copied",
         "cannot copy",
-        "not copied",
         "lost element",
         "丢失"
       ],
@@ -75,7 +83,12 @@
         "cancel upgrade",
         "无法使图元保持连接"
       ],
-      "click": "close",
+      "buttonActions": [
+        {
+          "buttonContains": ["关闭", "Close", "确定", "OK"],
+          "click": "close"
+        }
+      ],
       "dialogTypes": ["task", "messagebox"]
     }
   ]

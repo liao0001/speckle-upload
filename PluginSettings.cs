@@ -23,7 +23,7 @@ public static class PluginSettings
     get
     {
       var value = Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_OPEN_DIALOG_SUPPRESS_SECONDS");
-      return int.TryParse(value, out var seconds) && seconds > 0 ? seconds : 60;
+      return int.TryParse(value, out var seconds) && seconds > 0 ? seconds : 120;
     }
   }
 

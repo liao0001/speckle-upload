@@ -88,3 +88,12 @@
 
 ## 2026-05-27 17:25
 - 弹窗规则：图1 确定(ok)、图2 取消连接图元(commandLink1)、图3 结构分析升级关闭(close)；支持 commandLink1/2 与 clickResult
+
+## 2026-05-27 17:35
+- 修复图1未关闭：`Dialog_Revit_DocWarnDialog` 专用处理；MessageBox 确定用 OverrideResult(6)；DialogId 为空时仍可按文案匹配；默认抑制 120 秒
+
+## 2026-05-27 17:45
+- 弹窗日志增强：打印全部属性、匹配结果说明、JSON 规则逐条扫描；连接错误尝试 commandLink1/1002；按文案识别「不能忽略/无法使图元保持连接」
+
+## 2026-05-27 18:25
+- 弹窗规则支持 `titleContains`（OR）+ `buttonActions`（按按钮文案选 click）；`messageContains` 明确为 OR；已按三张图更新 JSON
