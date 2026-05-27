@@ -13,6 +13,12 @@ public sealed class OpenDialogRulesConfig
   /// <summary>未命中 rules 时，按顺序尝试的默认按钮（可配置顺序与 click/clickResult）。</summary>
   [JsonProperty("unmatchedFallback")]
   public OpenDialogUnmatchedFallback UnmatchedFallback { get; set; } = new();
+
+  /// <summary>
+  /// Dialog_Revit_DocWarnDialog 且 Revit API 读不到正文时，按弹窗出现顺序（第 1、2、3 个…）依次代点。
+  /// </summary>
+  [JsonProperty("docWarnEmptyMessageSequence")]
+  public OpenDialogUnmatchedFallback DocWarnEmptyMessageSequence { get; set; } = new();
 }
 
 public sealed class OpenDialogUnmatchedFallback

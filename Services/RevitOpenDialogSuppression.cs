@@ -18,11 +18,13 @@ public static class RevitOpenDialogSuppression
   private const string DocWarnDialogId = "Dialog_Revit_DocWarnDialog";
 
   private static DateTime _armedUntilUtc = DateTime.MinValue;
+  private static int _docWarnSequenceIndex;
 
   public static void ArmForOpen(TimeSpan? duration = null)
   {
     var seconds = PluginSettings.OpenDialogSuppressSeconds;
     _armedUntilUtc = DateTime.UtcNow.Add(duration ?? TimeSpan.FromSeconds(seconds));
+    _docWarnSequenceIndex = 0;
     OpenDialogRulesLoader.Load();
     PluginLog.Step("Doc", $"OpenDialogSuppression: armed for {seconds}s");
   }
@@ -56,10 +58,11 @@ public static class RevitOpenDialogSuppression
     var dialogType = args.GetType().Name;
     var title = CollectTitle(args);
     var body = CollectBody(args);
-    var combined = CombineText(title, body, dialogId);
+    var deepText = CollectDeepDialogText(args);
+    var combined = CombineText(title, body, deepText, dialogId);
     var buttonsText = CollectAvailableButtonsText(args, buttonsHint: GetButtonsHint(args));
 
-    LogDialogContent(args, dialogId, dialogType, title, body, combined, buttonsText);
+    LogDialogContent(args, dialogId, dialogType, title, body, deepText, combined, buttonsText);
 
     var config = OpenDialogRulesLoader.Load();
     if (IsNeverTouch(config, title, body, dialogId, out var neverKeyword))
@@ -68,7 +71,7 @@ public static class RevitOpenDialogSuppression
       return;
     }
 
-    if (TryHandleDocWarnByDialogId(args, dialogId, combined, buttonsText))
+    if (TryHandleDocWarnByDialogId(args, dialogId, combined, config))
     {
       return;
     }
@@ -84,7 +87,7 @@ public static class RevitOpenDialogSuppression
       LogMatchResult(false, "AUTO_DISMISS_ALL 已开启但代点失败");
     }
 
-    var rule = MatchRule(config, title, body, dialogId, dialogType, out var scanLines);
+    var rule = MatchRule(config, title, body, deepText, dialogId, dialogType, out var scanLines);
     if (rule == null)
     {
       LogRuleScanDetails(scanLines);
@@ -131,6 +134,7 @@ public static class RevitOpenDialogSuppression
     string dialogType,
     string title,
     string body,
+    string deepText,
     string combined,
     string? buttonsText
   )
@@ -140,8 +144,9 @@ public static class RevitOpenDialogSuppression
     PluginLog.Step("Doc", $"DialogType={dialogType}");
     PluginLog.Step("Doc", $"Title={title}");
     PluginLog.Step("Doc", $"Body={body}");
+    PluginLog.Step("Doc", $"DeepText={deepText}");
     PluginLog.Step("Doc", $"CombinedText={combined}");
-    PluginLog.Step("Doc", $"ButtonsHint={buttonsText ?? "(Revit API 未提供按钮文案，仅 CommonButtons/DialogType)"}");
+    PluginLog.Step("Doc", $"Buttons={buttonsText ?? "(Revit API 未读到按钮)"}");
 
     foreach (var prop in args.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public))
     {
@@ -241,19 +246,21 @@ public static class RevitOpenDialogSuppression
     DialogBoxShowingEventArgs args,
     string dialogId,
     string combined,
-    string? buttonsText
+    OpenDialogRulesConfig config
   )
   {
     var text = NormalizeForMatch(combined);
     var isDocWarnId = dialogId.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase);
-    var looksLikeJoin =
+    var isJoinError =
       ContainsNormalized(text, "无法使图元保持连接")
       || ContainsNormalized(text, "不能忽略")
-      || ContainsNormalized(text, "cannot keep elements joined");
-    var looksLikeWarn =
+      || ContainsNormalized(text, "cannot keep elements joined")
+      || ContainsNormalized(text, "unjoin elements");
+    var isWarnDialog =
       ContainsNormalized(text, "不能创建放样")
+      || ContainsNormalized(text, "删除图元")
       || (ContainsNormalized(text, "0 错误") && ContainsNormalized(text, "警告"));
-    var looksLikeDocWarn = isDocWarnId || looksLikeJoin || looksLikeWarn;
+    var looksLikeDocWarn = isDocWarnId || isJoinError || isWarnDialog;
 
     if (!looksLikeDocWarn)
     {
@@ -264,46 +271,140 @@ public static class RevitOpenDialogSuppression
     {
       PluginLog.Step("Doc", $"DocWarn 专用: DialogId={dialogId}，按正文启发式处理");
     }
-    var isJoinError =
-      ContainsNormalized(text, "无法使图元保持连接")
-      || ContainsNormalized(text, "不能忽略")
-      || ContainsNormalized(text, "cannot keep elements joined");
 
-    if (isJoinError)
+    if (HasMeaningfulDialogText(text))
     {
-      PluginLog.Step("Doc", "DocWarn 专用: 识别为连接错误 -> 尝试 commandLink1(1001)");
-      if (TryOverrideOnHierarchy(args, TaskDialogCommandLink1, "doc-warn-unjoin-1001"))
+      if (isJoinError)
       {
-        LogMatchResult(true, "DocWarn 专用 commandLink1/1001（取消连接图元）");
-        return true;
+        return TryDocWarnUnjoin(args, "正文识别为连接错误");
       }
 
-      PluginLog.Step("Doc", "DocWarn 专用: 1001 失败，尝试 commandLink2(1002)");
-      if (TryOverrideOnHierarchy(args, TaskDialogCommandLink2, "doc-warn-unjoin-1002"))
-      {
-        LogMatchResult(true, "DocWarn 专用 commandLink2/1002（取消连接图元）");
-        return true;
-      }
+      return TryDocWarnOk(args, isWarnDialog ? "正文识别为警告/族错误" : "DocWarn 有正文，默认确定");
+    }
 
-      LogMatchResult(false, "DocWarn 连接错误：1001/1002 均未成功代点");
+    _docWarnSequenceIndex++;
+    PluginLog.Step(
+      "Doc",
+      $"DocWarn 专用: API 无可用正文，按出现顺序第 {_docWarnSequenceIndex} 个弹窗代点"
+    );
+    return TryDocWarnSequenceEntry(args, config, _docWarnSequenceIndex);
+  }
+
+  private static bool HasMeaningfulDialogText(string normalizedCombined)
+  {
+    var withoutId = normalizedCombined.Replace(NormalizeForMatch(DocWarnDialogId), " ");
+    withoutId = string.Join(" ", withoutId.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+    return withoutId.Length >= 8;
+  }
+
+  private static bool TryDocWarnUnjoin(DialogBoxShowingEventArgs args, string reason)
+  {
+    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> 尝试 1001/1002");
+    if (TryOverrideOnHierarchy(args, TaskDialogCommandLink1, "doc-warn-unjoin-1001"))
+    {
+      LogMatchResult(true, "DocWarn 专用 commandLink1/1001（取消连接图元）");
       return true;
     }
 
-    PluginLog.Step("Doc", "DocWarn 专用: 识别为警告/族错误 -> 尝试 Ok(1) 与 MessageBoxOk(6)");
-    if (TryOverrideOnHierarchy(args, TaskDialogOk, "doc-warn-ok-1"))
+    if (TryOverrideOnHierarchy(args, TaskDialogCommandLink2, "doc-warn-unjoin-1002"))
     {
-      LogMatchResult(true, "DocWarn 专用 Ok/1（确定）");
+      LogMatchResult(true, "DocWarn 专用 commandLink2/1002（取消连接图元）");
       return true;
     }
 
+    LogMatchResult(false, "DocWarn 连接错误：1001/1002 均未成功代点");
+    return true;
+  }
+
+  private static bool TryDocWarnOk(DialogBoxShowingEventArgs args, string reason)
+  {
+    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> 尝试确定 6/1");
     if (TryOverrideOnHierarchy(args, MessageBoxOk, "doc-warn-ok-6"))
     {
       LogMatchResult(true, "DocWarn 专用 MessageBoxOk/6（确定）");
       return true;
     }
 
-    LogMatchResult(false, "DocWarn 警告：Ok/1 与 6 均未成功代点");
+    if (TryOverrideOnHierarchy(args, TaskDialogOk, "doc-warn-ok-1"))
+    {
+      LogMatchResult(true, "DocWarn 专用 Ok/1（确定）");
+      return true;
+    }
+
+    LogMatchResult(false, "DocWarn 警告：6/1 均未成功代点");
     return true;
+  }
+
+  private static bool TryDocWarnSequenceEntry(
+    DialogBoxShowingEventArgs args,
+    OpenDialogRulesConfig config,
+    int sequenceIndex
+  )
+  {
+    var sequence = config.DocWarnEmptyMessageSequence.TryButtons;
+    if (sequence.Count == 0)
+    {
+      sequence = OpenDialogRulesLoader.CreateDefaultDocWarnEmptyMessageSequence();
+    }
+
+    var entryIndex = Math.Min(sequenceIndex - 1, sequence.Count - 1);
+    var entry = sequence[entryIndex];
+    var label = string.IsNullOrWhiteSpace(entry.Label) ? $"#{sequenceIndex}" : entry.Label;
+
+    foreach (var code in ResolveResultCodes(args, entry))
+    {
+      PluginLog.Step("Doc", $"DocWarn 顺序代点 [{sequenceIndex}] {label} code={code}");
+      if (TryOverrideOnHierarchy(args, code, $"doc-warn-seq-{sequenceIndex}/{label}"))
+      {
+        LogMatchResult(true, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 -> {label} (code={code})");
+        return true;
+      }
+    }
+
+    LogMatchResult(false, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 ({label}) 代点失败");
+    return true;
+  }
+
+  private static IEnumerable<int> ResolveResultCodes(
+    DialogBoxShowingEventArgs args,
+    OpenDialogFallbackButton entry
+  )
+  {
+    if (entry.ClickResult.HasValue)
+    {
+      yield return entry.ClickResult.Value;
+      yield break;
+    }
+
+    var click = entry.Click.Trim().ToLowerInvariant();
+    switch (click)
+    {
+      case "ok":
+        yield return MessageBoxOk;
+        yield return TaskDialogOk;
+        yield break;
+      case "commandlink1":
+        yield return TaskDialogCommandLink1;
+        yield return TaskDialogCommandLink2;
+        yield break;
+      case "commandlink2":
+        yield return TaskDialogCommandLink2;
+        yield break;
+      case "close":
+        yield return TaskDialogClose;
+        yield break;
+      case "cancel":
+        yield return TaskDialogCancel;
+        yield break;
+      default:
+        var mapped = MapClick(args, click);
+        if (mapped.HasValue)
+        {
+          yield return mapped.Value;
+        }
+
+        break;
+    }
   }
 
   private static bool TryUnmatchedFallback(
@@ -370,13 +471,14 @@ public static class RevitOpenDialogSuppression
     OpenDialogRulesConfig config,
     string title,
     string body,
+    string deepText,
     string dialogId,
     string dialogType,
     out List<string> scanLines
   )
   {
     scanLines = new List<string>();
-    var combinedNorm = NormalizeForMatch(CombineText(title, body, dialogId));
+    var combinedNorm = NormalizeForMatch(CombineText(title, body, deepText, dialogId));
     var typeKey = dialogType.Contains("MessageBox", StringComparison.Ordinal) ? "messagebox" : "task";
 
     foreach (var rule in config.Rules)
@@ -742,17 +844,44 @@ public static class RevitOpenDialogSuppression
       }
     }
 
-    if (args.DialogId?.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase) == true)
+    return parts.Count == 0 ? null : string.Join(" | ", parts.Distinct(StringComparer.Ordinal));
+  }
+
+  private static string CollectDeepDialogText(DialogBoxShowingEventArgs args)
+  {
+    var parts = new List<string>();
+    var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+    for (var type = args.GetType(); type != null; type = type.BaseType)
     {
-      parts.Add("确定");
-      parts.Add("取消");
-      parts.Add("取消连接图元");
-      parts.Add("Unjoin Elements");
-      parts.Add("OK");
-      parts.Add("Cancel");
+      foreach (var prop in type.GetProperties(flags))
+      {
+        if (!prop.CanRead || prop.GetIndexParameters().Length > 0)
+        {
+          continue;
+        }
+
+        try
+        {
+          if (prop.PropertyType == typeof(string))
+          {
+            AppendIfPresent(parts, prop.GetValue(args) as string);
+            continue;
+          }
+
+          if (prop.PropertyType.IsEnum)
+          {
+            AppendIfPresent(parts, prop.GetValue(args)?.ToString());
+          }
+        }
+        catch
+        {
+          // ignore
+        }
+      }
     }
 
-    return parts.Count == 0 ? null : string.Join(" | ", parts.Distinct(StringComparer.Ordinal));
+    return string.Join(" ", parts.Distinct(StringComparer.Ordinal));
   }
 
   private static string ReadMessage(DialogBoxShowingEventArgs args)
@@ -778,9 +907,9 @@ public static class RevitOpenDialogSuppression
     }
   }
 
-  private static string CombineText(string title, string body, string dialogId)
+  private static string CombineText(params string[] parts)
   {
-    return string.Join(" ", new[] { title, body, dialogId }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    return string.Join(" ", parts.Where(s => !string.IsNullOrWhiteSpace(s)));
   }
 
   private static void AppendIfPresent(List<string> parts, string? value)

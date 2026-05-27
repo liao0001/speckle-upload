@@ -13,6 +13,24 @@
     ],
     "dialogIdContains": []
   },
+  "docWarnEmptyMessageSequence": {
+    "tryButtons": [
+      {
+        "label": "确定（第1个弹窗-警告）",
+        "click": "ok"
+      },
+      {
+        "label": "取消连接图元（第2个弹窗-连接）",
+        "click": "commandLink1",
+        "clickResult": 1001
+      },
+      {
+        "label": "关闭（第3个及以后）",
+        "click": "close",
+        "clickResult": 8
+      }
+    ]
+  },
   "unmatchedFallback": {
     "enabled": true,
     "tryButtons": [

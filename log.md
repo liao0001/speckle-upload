@@ -110,3 +110,7 @@
 ## 2026-05-27 19:07
 - 修复弹窗抑制导致 Speckle 不上传：`PrepareDocumentForUpload` 结束后 `CompleteOpenPhase()` 关闭代点，避免转换/发送阶段误点弹窗
 - `SpeckleSendService.SendPhysicalObjects` 在 ExternalEvent 线程同步执行，`ConfigureAwait(true)` 保持 Revit 上下文
+
+## 2026-05-27 19:23
+- 修复 DocWarn 无正文时误点 Ok(1) 导致 `Opening was canceled`：反射 DeepText；无正文时按 `docWarnEmptyMessageSequence` 顺序代点（默认 确定→取消连接图元→关闭）
+- 确定类弹窗优先尝试 code 6 再 1；移除 DocWarn 假按钮注入以免误判
