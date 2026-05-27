@@ -32,4 +32,10 @@
   <ItemGroup Condition="'$(RevitVersion)' == '2024'">
     <PackageReference Include="Speckle.Objects.Converter.Revit2024" Version="2.23.2" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="SpeckleUpload.open-dialog-rules.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

@@ -82,3 +82,9 @@
 
 ## 2026-05-27 10:05
 - CI 制品改为带版本信息的 zip：`speckle-upload-{2022|2024}-{yyyyMMddHHmmss}-{commit6}.zip`，包内附带 `BUILD_INFO.txt`；恢复 2022/2024 矩阵构建
+
+## 2026-05-27 17:11
+- 打开 RVT 弹窗改为规则文件 `SpeckleUpload.open-dialog-rules.json`：`never` 永不代点（含取消升级）；`rules` 按文案匹配 click close/ok；移除误匹配「升级」关键词
+
+## 2026-05-27 17:25
+- 弹窗规则：图1 确定(ok)、图2 取消连接图元(commandLink1)、图3 结构分析升级关闭(close)；支持 commandLink1/2 与 clickResult

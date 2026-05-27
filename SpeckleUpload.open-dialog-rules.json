@@ -1,0 +1,82 @@
+{
+  "never": {
+    "messageContains": [
+      "取消升级",
+      "cancel upgrade",
+      "cancelling upgrade",
+      "正在升级",
+      "upgrade in progress",
+      "upgrading the project",
+      "升级项目",
+      "upgrade project"
+    ],
+    "dialogIdContains": []
+  },
+  "rules": [
+    {
+      "name": "fig2-unjoin-elements",
+      "messageContains": [
+        "无法使图元保持连接",
+        "不能忽略",
+        "cannot keep elements joined",
+        "cannot be ignored"
+      ],
+      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
+      "click": "commandLink1",
+      "dialogTypes": ["task"]
+    },
+    {
+      "name": "fig3-structural-analysis-upgrade-close",
+      "messageContains": [
+        "结构分析模型升级",
+        "分析图元相关的注释",
+        "已修改或丢失",
+        "analytical"
+      ],
+      "messageNotContains": ["取消升级", "cancel upgrade"],
+      "click": "close",
+      "dialogTypes": ["task", "messagebox"]
+    },
+    {
+      "name": "fig1-family-warning-ok",
+      "messageContains": [
+        "警告",
+        "0 错误",
+        "不能创建放样",
+        "删除图元",
+        "自动解决"
+      ],
+      "messageNotContains": [
+        "无法使图元保持连接",
+        "不能忽略",
+        "结构分析模型升级",
+        "取消升级"
+      ],
+      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
+      "click": "ok",
+      "dialogTypes": ["task"]
+    },
+    {
+      "name": "incompatible-elements-close",
+      "messageContains": [
+        "不兼容",
+        "incompatib",
+        "无法复制",
+        "不能复制",
+        "未能复制",
+        "could not be copied",
+        "cannot copy",
+        "not copied",
+        "lost element",
+        "丢失"
+      ],
+      "messageNotContains": [
+        "取消升级",
+        "cancel upgrade",
+        "无法使图元保持连接"
+      ],
+      "click": "close",
+      "dialogTypes": ["task", "messagebox"]
+    }
+  ]
+}
