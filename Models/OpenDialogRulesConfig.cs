@@ -15,7 +15,7 @@ public sealed class OpenDialogRulesConfig
   public OpenDialogUnmatchedFallback UnmatchedFallback { get; set; } = new();
 
   /// <summary>
-  /// Dialog_Revit_DocWarnDialog 且 Revit API 读不到正文时，按弹窗出现顺序（第 1、2、3 个…）依次代点。
+  /// 仅当 DialogBoxShowing 读不到正文与按钮时的顺序兜底（优先用 rules 与正文/按钮关键词匹配）。
   /// </summary>
   [JsonProperty("docWarnEmptyMessageSequence")]
   public OpenDialogUnmatchedFallback DocWarnEmptyMessageSequence { get; set; } = new();

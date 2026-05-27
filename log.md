@@ -127,3 +127,6 @@
 
 ## 2026-05-27 20:00
 - 移除 Win32 代点（`Win32DialogClicker`）；仍用 `OverrideResult` + `docWarnEmptyMessageSequence` 顺序（1001→4→8）
+
+## 2026-05-27 20:06
+- DocWarn 代点优先级：JSON rules（正文）→ 正文/按钮关键词 → `docWarnEmptyMessageSequence` 顺序兜底；日志输出可读正文/按钮

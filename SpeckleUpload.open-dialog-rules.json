@@ -14,6 +14,7 @@
     "dialogIdContains": []
   },
   "docWarnEmptyMessageSequence": {
+    "_comment": "仅当 Revit API 读不到弹窗正文/按钮时使用；能读到时按 rules 或 messageContains/buttonContains 匹配",
     "tryButtons": [
       {
         "label": "取消连接图元（第1个弹窗-连接）",

@@ -77,7 +77,17 @@ public static class RevitOpenDialogSuppression
       return;
     }
 
-    if (TryHandleDocWarnByDialogId(args, dialogId, combined, config))
+    if (TryHandleDocWarnByDialogId(
+      args,
+      dialogId,
+      dialogType,
+      title,
+      body,
+      deepText,
+      combined,
+      buttonsText,
+      config
+    ))
     {
       return;
     }
@@ -252,96 +262,205 @@ public static class RevitOpenDialogSuppression
   private static bool TryHandleDocWarnByDialogId(
     DialogBoxShowingEventArgs args,
     string dialogId,
+    string dialogType,
+    string title,
+    string body,
+    string deepText,
     string combined,
+    string? buttonsText,
     OpenDialogRulesConfig config
   )
   {
-    var text = NormalizeForMatch(combined);
+    var haystack = NormalizeForMatch($"{combined} {buttonsText}");
     var isDocWarnId = dialogId.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase);
-    var isJoinError =
-      ContainsNormalized(text, "无法使图元保持连接")
-      || ContainsNormalized(text, "不能忽略")
-      || ContainsNormalized(text, "cannot keep elements joined")
-      || ContainsNormalized(text, "unjoin elements")
-      || ContainsNormalized(text, "取消关联图元");
-    var isWarnDialog =
-      ContainsNormalized(text, "不能创建放样")
-      || ContainsNormalized(text, "删除图元")
-      || (ContainsNormalized(text, "0 错误") && ContainsNormalized(text, "警告"));
-    var looksLikeDocWarn = isDocWarnId || isJoinError || isWarnDialog;
+    var hasReadableText = HasReadableDialogText(haystack);
+    var hasReadableButtons = !string.IsNullOrWhiteSpace(buttonsText);
+    var looksLikeDocWarn =
+      isDocWarnId
+      || ContainsNormalized(haystack, "无法使图元保持连接")
+      || ContainsNormalized(haystack, "不能忽略")
+      || ContainsNormalized(haystack, "不能创建放样")
+      || ContainsNormalized(haystack, "结构分析模型升级");
 
     if (!looksLikeDocWarn)
     {
       return false;
     }
 
-    if (!isDocWarnId)
-    {
-      PluginLog.Step("Doc", $"DocWarn 专用: DialogId={dialogId}，按正文启发式处理");
-    }
+    PluginLog.Step(
+      "Doc",
+      $"DocWarn: 可读正文={hasReadableText} 可读按钮={hasReadableButtons} surface={GetDialogSurfaceKind(args)}"
+    );
 
-    if (HasMeaningfulDialogText(text))
+    var rule = MatchRule(config, title, body, deepText, dialogId, dialogType, out var scanLines);
+    if (rule != null)
     {
-      if (isJoinError)
+      PluginLog.Step("Doc", $"DocWarn: 命中 JSON 规则 [{rule.Name}]（按正文/标题匹配）");
+      var buttonAction = ResolveButtonAction(rule, buttonsText, combined, out var buttonExplain);
+      if (buttonAction != null)
       {
-        return TryDocWarnUnjoin(args, "正文识别为连接错误");
+        var clickRule = ToClickRule(rule, buttonAction);
+        if (TryClick(args, clickRule, buttonAction, rule.Name))
+        {
+          LogMatchResult(
+            true,
+            $"DocWarn 规则 [{rule.Name}]；{buttonExplain} -> click={clickRule.Click}"
+            + (clickRule.ClickResult.HasValue ? $" (code={clickRule.ClickResult})" : "")
+          );
+          return true;
+        }
+
+        LogMatchResult(false, $"DocWarn 规则 [{rule.Name}] 已匹配但代点失败");
+        return true;
       }
 
-      return TryDocWarnOk(args, isWarnDialog ? "正文识别为警告/族错误" : "DocWarn 有正文，默认确定");
+      PluginLog.Step("Doc", $"DocWarn: 规则 [{rule.Name}] 命中但未匹配到 buttonActions");
+      LogRuleScanDetails(scanLines);
+    }
+
+    if (TryResolveDocWarnByContentOrButtons(haystack, config, out var resolved, out var resolveReason))
+    {
+      PluginLog.Step("Doc", $"DocWarn: 按正文/按钮关键词 -> {resolveReason} click={resolved.Click}");
+      return TryDocWarnClickResolved(args, resolved, resolveReason);
     }
 
     _docWarnSequenceIndex++;
     PluginLog.Step(
       "Doc",
-      $"DocWarn 专用: API 无可用正文，按出现顺序第 {_docWarnSequenceIndex} 个弹窗 OverrideResult"
+      "DocWarn: Revit API 未提供可用正文与按钮文案（DialogBox 常见），"
+        + $"使用 docWarnEmptyMessageSequence 顺序兜底 第 {_docWarnSequenceIndex} 个"
     );
     return TryDocWarnSequenceEntry(args, config, _docWarnSequenceIndex);
   }
 
-  private static bool HasMeaningfulDialogText(string normalizedCombined)
+  private static bool HasReadableDialogText(string normalizedHaystack)
   {
-    var withoutId = normalizedCombined.Replace(NormalizeForMatch(DocWarnDialogId), " ");
+    var withoutId = normalizedHaystack.Replace(NormalizeForMatch(DocWarnDialogId), " ");
     withoutId = string.Join(" ", withoutId.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
     return withoutId.Length >= 8;
   }
 
-  private static bool TryDocWarnUnjoin(DialogBoxShowingEventArgs args, string reason)
+  private static bool TryResolveDocWarnByContentOrButtons(
+    string haystackNormalized,
+    OpenDialogRulesConfig config,
+    out OpenDialogFallbackButton resolved,
+    out string reason
+  )
   {
-    var code = ResolveOverrideCode(args, "commandLink1", null, DocWarnDialogId);
-    if (!code.HasValue)
+    resolved = new OpenDialogFallbackButton();
+    reason = string.Empty;
+
+    foreach (var rule in config.Rules)
     {
-      LogMatchResult(false, "DocWarn 连接错误：无法解析 commandLink1 代码");
-      return true;
+      foreach (var action in rule.ButtonActions)
+      {
+        if (action.ButtonContains.Count == 0)
+        {
+          continue;
+        }
+
+        if (!action.ButtonContains.Any(b => ContainsNormalized(haystackNormalized, b)))
+        {
+          continue;
+        }
+
+        resolved = action;
+        reason = $"规则 [{rule.Name}] 按钮关键词";
+        return true;
+      }
     }
 
-    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> code={code}");
-    if (TryOverrideResult(args, code.Value, "doc-warn-unjoin"))
+    foreach (var entry in config.DocWarnEmptyMessageSequence.TryButtons)
     {
-      LogMatchResult(true, $"DocWarn 专用 取消连接图元 (code={code})");
-      return true;
+      var keywords = new List<string>();
+      if (!string.IsNullOrWhiteSpace(entry.Label))
+      {
+        keywords.Add(entry.Label);
+      }
+
+      keywords.AddRange(entry.ButtonContains);
+      keywords.AddRange(GetDefaultKeywordsForClick(entry.Click));
+
+      if (keywords.Any(k => ContainsNormalized(haystackNormalized, k)))
+      {
+        resolved = entry;
+        reason = $"顺序表关键词 [{entry.Label}]";
+        return true;
+      }
     }
 
-    LogMatchResult(false, $"DocWarn 连接错误：code={code} 未被 Revit 接受");
-    return true;
+    foreach (var (keys, click, result, name) in DocWarnContentPatterns)
+    {
+      if (keys.Any(k => ContainsNormalized(haystackNormalized, k)))
+      {
+        resolved = new OpenDialogFallbackButton { Click = click, ClickResult = result };
+        reason = name;
+        return true;
+      }
+    }
+
+    return false;
   }
 
-  private static bool TryDocWarnOk(DialogBoxShowingEventArgs args, string reason)
+  private static IEnumerable<string> GetDefaultKeywordsForClick(string click)
   {
-    var code = ResolveOverrideCode(args, "docWarnOk", null, DocWarnDialogId);
+    switch (click.Trim().ToLowerInvariant())
+    {
+      case "commandlink1":
+      case "unjoin":
+        yield return "取消连接图元";
+        yield return "取消关联图元";
+        yield return "Unjoin Elements";
+        yield break;
+      case "ok":
+      case "docwarnok":
+        yield return "确定";
+        yield return "OK";
+        yield break;
+      case "close":
+        yield return "关闭";
+        yield return "Close";
+        yield break;
+    }
+  }
+
+  private static readonly (string[] Keys, string Click, int? Result, string Name)[] DocWarnContentPatterns =
+  [
+    (
+      ["无法使图元保持连接", "不能忽略", "取消连接图元", "取消关联图元", "unjoin elements", "cannot keep elements joined"],
+      "commandLink1",
+      1001,
+      "连接错误-取消连接/关联图元"
+    ),
+    (["结构分析模型升级"], "close", 8, "结构分析-关闭"),
+    (
+      ["不能创建放样", "删除图元", "0 错误", "警告", "防撞侧石", "族"],
+      "docWarnOk",
+      4,
+      "警告-确定"
+    ),
+  ];
+
+  private static bool TryDocWarnClickResolved(
+    DialogBoxShowingEventArgs args,
+    OpenDialogFallbackButton resolved,
+    string reason
+  )
+  {
+    var code = ResolveOverrideCode(args, resolved.Click, resolved.ClickResult, DocWarnDialogId);
     if (!code.HasValue)
     {
-      LogMatchResult(false, "DocWarn 警告：无法解析确定按钮代码");
+      LogMatchResult(false, $"DocWarn {reason}：无法解析 click={resolved.Click}");
       return true;
     }
 
-    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> code={code}");
-    if (TryOverrideResult(args, code.Value, "doc-warn-ok"))
+    if (TryOverrideResult(args, code.Value, $"doc-warn/{reason}"))
     {
-      LogMatchResult(true, $"DocWarn 专用 确定 (code={code})");
+      LogMatchResult(true, $"DocWarn {reason} (code={code})");
       return true;
     }
 
-    LogMatchResult(false, $"DocWarn 警告：code={code} 未被 Revit 接受");
+    LogMatchResult(false, $"DocWarn {reason}：code={code} 未被 Revit 接受");
     return true;
   }
 
