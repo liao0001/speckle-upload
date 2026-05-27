@@ -27,9 +27,23 @@ public static class RevitOpenDialogSuppression
     PluginLog.Step("Doc", $"OpenDialogSuppression: armed for {seconds}s");
   }
 
-  public static void Disarm() => _armedUntilUtc = DateTime.MinValue;
+  public static void Disarm()
+  {
+    if (IsArmed)
+    {
+      PluginLog.Step("Doc", "OpenDialogSuppression: disarmed");
+    }
+
+    _armedUntilUtc = DateTime.MinValue;
+  }
 
   public static bool IsArmed => DateTime.UtcNow < _armedUntilUtc;
+
+  /// <summary>打开/关其它文档阶段结束，停止代点，避免 Speckle 转换期间误关弹窗。</summary>
+  public static void CompleteOpenPhase()
+  {
+    Disarm();
+  }
 
   public static void Handle(DialogBoxShowingEventArgs args)
   {

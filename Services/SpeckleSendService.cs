@@ -14,12 +14,18 @@ namespace SpeckleUpload.Services;
 
 public static class SpeckleSendService
 {
-  public static async Task<UploadCallbackPayload> SendPhysicalObjectsAsync(
+  /// <summary>在 Revit ExternalEvent 线程上同步执行，避免 await 切到线程池后无法安全使用 Revit API。</summary>
+  public static UploadCallbackPayload SendPhysicalObjects(Document document, UploadRequest request)
+  {
+    return SendPhysicalObjectsCore(document, request).GetAwaiter().GetResult();
+  }
+
+  private static async Task<UploadCallbackPayload> SendPhysicalObjectsCore(
     Document document,
     UploadRequest request
   )
   {
-    PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: begin requestId={request.RequestId}");
+    PluginLog.Step("Speckle", $"SendPhysicalObjects: begin requestId={request.RequestId}");
 
     PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: RevitConverterState.Push");
     using var converterState = RevitConverterState.Push();
@@ -142,7 +148,7 @@ public static class SpeckleSendService
     try
     {
       PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: Operations.Send begin");
-      objectId = await Operations.Send(commitObject, transports).ConfigureAwait(false);
+      objectId = await Operations.Send(commitObject, transports).ConfigureAwait(true);
       PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}");
     }
     catch (Exception ex)
@@ -168,7 +174,7 @@ public static class SpeckleSendService
         $"SendPhysicalObjectsAsync: CommitCreate begin branchName={commitInput.branchName} streamId={commitInput.streamId} messageLen={commitMessage.Length}"
       );
 #pragma warning disable CS0618
-      var commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
+      var commitId = await client.CommitCreate(commitInput).ConfigureAwait(true);
 #pragma warning restore CS0618
       PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: CommitCreate end commitId={commitId}");
 

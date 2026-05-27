@@ -106,3 +106,7 @@
 ## 2026-05-27 18:47
 - 未命中 `rules` 时按 `unmatchedFallback.tryButtons` 顺序代点（默认：取消连接图元→确定→关闭）
 - 兜底仍失败时输出「未匹配到处理措施」块（含弹窗与按钮信息），便于后续补充 JSON 规则
+
+## 2026-05-27 19:07
+- 修复弹窗抑制导致 Speckle 不上传：`PrepareDocumentForUpload` 结束后 `CompleteOpenPhase()` 关闭代点，避免转换/发送阶段误点弹窗
+- `SpeckleSendService.SendPhysicalObjects` 在 ExternalEvent 线程同步执行，`ConfigureAwait(true)` 保持 Revit 上下文

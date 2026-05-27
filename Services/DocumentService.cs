@@ -50,6 +50,7 @@ public static class DocumentService
     {
       PluginLog.Step("Doc", "PrepareDocumentForUpload: target already active");
       CloseOtherDocumentsExcept(uiApp, active);
+      RevitOpenDialogSuppression.CompleteOpenPhase();
       return active;
     }
 
@@ -57,7 +58,8 @@ public static class DocumentService
     var opened = OpenDocument(uiApp, filePath);
     CloseOtherDocumentsExcept(uiApp, opened);
 
-    PluginLog.Step("Doc", "PrepareDocumentForUpload: end");
+    RevitOpenDialogSuppression.CompleteOpenPhase();
+    PluginLog.Step("Doc", "PrepareDocumentForUpload: end (dialog suppression off before Speckle)");
     return opened;
   }
 

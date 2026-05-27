@@ -138,11 +138,9 @@ public sealed class UploadEventHandler : IExternalEventHandler
       PluginLog.Step("UploadHandler", "Execute: step PrepareDocumentForUpload (open target then close others)");
       var document = DocumentService.PrepareDocumentForUpload(app, request.FilePath);
 
-      PluginLog.Step("UploadHandler", "Execute: step SpeckleSend");
-      payload = SpeckleSendService
-        .SendPhysicalObjectsAsync(document, request)
-        .GetAwaiter()
-        .GetResult();
+      RevitOpenDialogSuppression.CompleteOpenPhase();
+      PluginLog.Step("UploadHandler", "Execute: step SpeckleSend (dialog suppression must be off)");
+      payload = SpeckleSendService.SendPhysicalObjects(document, request);
 
       PluginLog.Step("UploadHandler", $"Execute: SpeckleSend OK objectId={payload.ObjectId}");
     }
