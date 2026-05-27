@@ -25,6 +25,19 @@ public static class RevitOpenDialogSuppression
 
   private static DateTime _armedUntilUtc = DateTime.MinValue;
   private static int _docWarnSequenceIndex;
+  private static volatile bool _openDocumentInProgress;
+
+  public static void BeginOpenDocument()
+  {
+    _openDocumentInProgress = true;
+    PluginLog.Step("Doc", "OpenDocument: 进入打开阶段（DocWarn DialogBox 使用 Win32 点击，不用 OverrideResult）");
+  }
+
+  public static void EndOpenDocument()
+  {
+    _openDocumentInProgress = false;
+    PluginLog.Step("Doc", "OpenDocument: 打开阶段结束");
+  }
 
   public static void ArmForOpen(TimeSpan? duration = null)
   {
@@ -287,10 +300,16 @@ public static class RevitOpenDialogSuppression
       return false;
     }
 
+    var surface = GetDialogSurfaceKind(args);
     PluginLog.Step(
       "Doc",
-      $"DocWarn: 可读正文={hasReadableText} 可读按钮={hasReadableButtons} surface={GetDialogSurfaceKind(args)}"
+      $"DocWarn: 可读正文={hasReadableText} 可读按钮={hasReadableButtons} surface={surface}"
     );
+
+    if (isDocWarnId && surface == "dialogbox")
+    {
+      return ScheduleDocWarnWin32Click(config, haystack, combined, buttonsText);
+    }
 
     var rule = MatchRule(config, title, body, deepText, dialogId, dialogType, out var scanLines);
     if (rule != null)
@@ -333,6 +352,87 @@ public static class RevitOpenDialogSuppression
     return TryDocWarnSequenceEntry(args, config, _docWarnSequenceIndex);
   }
 
+  private static bool ScheduleDocWarnWin32Click(
+    OpenDialogRulesConfig config,
+    string haystack,
+    string combined,
+    string? buttonsText
+  )
+  {
+    List<string> fallbackCandidates;
+    string scheduleReason;
+
+    if (TryResolveDocWarnByContentOrButtons(haystack, config, out var resolved, out var resolveReason))
+    {
+      fallbackCandidates = BuildWin32KeywordsFromFallback(resolved);
+      scheduleReason = resolveReason;
+    }
+    else
+    {
+      _docWarnSequenceIndex++;
+      var sequence = config.DocWarnEmptyMessageSequence.TryButtons;
+      if (sequence.Count == 0)
+      {
+        sequence = OpenDialogRulesLoader.CreateDefaultDocWarnEmptyMessageSequence();
+      }
+
+      var entryIndex = Math.Min(_docWarnSequenceIndex - 1, sequence.Count - 1);
+      var entry = sequence[entryIndex];
+      fallbackCandidates = BuildWin32KeywordsFromFallback(entry);
+      scheduleReason = $"API 无正文，顺序第 {_docWarnSequenceIndex} 个（{entry.Label}）";
+    }
+
+    var sequenceIndex = _docWarnSequenceIndex;
+    var candidateLog = string.Join(" > ", fallbackCandidates);
+
+    Task.Run(() =>
+    {
+      if (Win32DialogClicker.TryAutoClickDocWarnDialog(
+        config,
+        sequenceIndex,
+        fallbackCandidates,
+        90000,
+        out var detail
+      ))
+      {
+        PluginLog.Step("Doc", $"Win32: 成功 {detail}");
+      }
+      else
+      {
+        PluginLog.Step("Doc", $"Win32: 失败 {detail} candidates={candidateLog}");
+      }
+    });
+
+    LogMatchResult(true, $"DocWarn Win32 已调度（{scheduleReason}）候选: {candidateLog}");
+    return true;
+  }
+
+  private static List<string> BuildWin32KeywordsFromFallback(OpenDialogFallbackButton entry)
+  {
+    var list = new List<string>();
+    if (!string.IsNullOrWhiteSpace(entry.Label))
+    {
+      list.Add(entry.Label);
+    }
+
+    list.AddRange(entry.ButtonContains);
+    list.AddRange(GetDefaultKeywordsForClick(entry.Click));
+    return list
+      .Where(s => !string.IsNullOrWhiteSpace(s))
+      .Distinct(StringComparer.OrdinalIgnoreCase)
+      .ToList();
+  }
+
+  private static OpenDialogFallbackButton ToFallbackButton(OpenDialogButtonAction action)
+  {
+    return new OpenDialogFallbackButton
+    {
+      Click = action.Click,
+      ClickResult = action.ClickResult,
+      ButtonContains = action.ButtonContains,
+    };
+  }
+
   private static bool HasReadableDialogText(string normalizedHaystack)
   {
     var withoutId = normalizedHaystack.Replace(NormalizeForMatch(DocWarnDialogId), " ");
@@ -364,7 +464,7 @@ public static class RevitOpenDialogSuppression
           continue;
         }
 
-        resolved = action;
+        resolved = ToFallbackButton(action);
         reason = $"规则 [{rule.Name}] 按钮关键词";
         return true;
       }

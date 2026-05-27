@@ -200,13 +200,14 @@ public static class DocumentService
 
     PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument (dialog suppression armed)");
     RevitOpenDialogSuppression.ArmForOpen();
+    RevitOpenDialogSuppression.BeginOpenDocument();
     try
     {
       uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
     }
     finally
     {
-      // 升级后「不兼容图元」等弹窗可能在 Open 返回后才出现，保持 armed 直至超时
+      RevitOpenDialogSuppression.EndOpenDocument();
     }
 
     var activeDoc = uiApp.ActiveUIDocument?.Document;

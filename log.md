@@ -130,3 +130,10 @@
 
 ## 2026-05-27 20:06
 - DocWarn 代点优先级：JSON rules（正文）→ 正文/按钮关键词 → `docWarnEmptyMessageSequence` 顺序兜底；日志输出可读正文/按钮
+
+## 2026-05-27 22:06
+- 修复编译：`OpenDialogButtonAction` → `OpenDialogFallbackButton` 转换
+- 打开阶段 `Dialog_Revit_DocWarnDialog`(DialogBox) 不再 `OverrideResult`（1001/4 等 accepted 仍会 Opening was canceled）；改由 Revit 窗口手动点完弹窗
+
+## 2026-05-27 22:13
+- 无人值守 + 可前台：DocWarn DialogBox 用 Win32 枚举可见按钮点击；弹窗出现后读 Static 正文匹配 rules，否则按 `docWarnEmptyMessageSequence`；自动 SetForegroundWindow Revit
