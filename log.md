@@ -97,3 +97,12 @@
 
 ## 2026-05-27 18:25
 - 弹窗规则支持 `titleContains`（OR）+ `buttonActions`（按按钮文案选 click）；`messageContains` 明确为 OR；已按三张图更新 JSON
+
+## 2026-05-27 18:44
+- 图1/图2：`Dialog_Revit_DocWarnDialog` 专用代点（连接错误 1001→1002，警告 1→6）；`never` 优先于专用逻辑
+- 规则匹配：`titleContains`/`messageContains` 在全文匹配，两组之间 OR；破折号归一化
+- `OverrideResult` 沿类型继承链反射调用；JSON 为 fig1/fig2 增加 `dialogIdContains` 与 `clickResult`
+
+## 2026-05-27 18:47
+- 未命中 `rules` 时按 `unmatchedFallback.tryButtons` 顺序代点（默认：取消连接图元→确定→关闭）
+- 兜底仍失败时输出「未匹配到处理措施」块（含弹窗与按钮信息），便于后续补充 JSON 规则

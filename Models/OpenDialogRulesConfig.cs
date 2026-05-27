@@ -9,6 +9,36 @@ public sealed class OpenDialogRulesConfig
 
   [JsonProperty("rules")]
   public List<OpenDialogRule> Rules { get; set; } = new();
+
+  /// <summary>未命中 rules 时，按顺序尝试的默认按钮（可配置顺序与 click/clickResult）。</summary>
+  [JsonProperty("unmatchedFallback")]
+  public OpenDialogUnmatchedFallback UnmatchedFallback { get; set; } = new();
+}
+
+public sealed class OpenDialogUnmatchedFallback
+{
+  [JsonProperty("enabled")]
+  public bool Enabled { get; set; } = true;
+
+  /// <summary>从上到下依次尝试，任一 OverrideResult 成功即停止。</summary>
+  [JsonProperty("tryButtons")]
+  public List<OpenDialogFallbackButton> TryButtons { get; set; } = new();
+}
+
+public sealed class OpenDialogFallbackButton
+{
+  /// <summary>按钮文案（日志用；也会并入 buttonContains 做可选匹配）。</summary>
+  [JsonProperty("label")]
+  public string Label { get; set; } = string.Empty;
+
+  [JsonProperty("buttonContains")]
+  public List<string> ButtonContains { get; set; } = new();
+
+  [JsonProperty("click")]
+  public string Click { get; set; } = "ok";
+
+  [JsonProperty("clickResult")]
+  public int? ClickResult { get; set; }
 }
 
 public sealed class OpenDialogNeverRules

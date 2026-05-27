@@ -28,7 +28,7 @@ public static class OpenDialogRulesLoader
           ?? CreateHardcodedDefaults();
         PluginLog.Step(
           "Doc",
-          $"OpenDialogRules: loaded \"{path}\" rules={_cached.Rules.Count} neverKeywords={_cached.Never.MessageContains.Count}"
+          $"OpenDialogRules: loaded \"{path}\" rules={_cached.Rules.Count} neverKeywords={_cached.Never.MessageContains.Count} fallbackButtons={_cached.UnmatchedFallback.TryButtons.Count}"
         );
         return _cached;
       }
@@ -98,6 +98,39 @@ public static class OpenDialogRulesLoader
           MessageNotContains = ["取消升级", "cancel upgrade"],
           Click = "close",
           DialogTypes = ["task", "messagebox"],
+        },
+      ],
+      UnmatchedFallback = CreateDefaultUnmatchedFallback(),
+    };
+  }
+
+  private static OpenDialogUnmatchedFallback CreateDefaultUnmatchedFallback()
+  {
+    return new OpenDialogUnmatchedFallback
+    {
+      Enabled = true,
+      TryButtons =
+      [
+        new OpenDialogFallbackButton
+        {
+          Label = "取消连接图元",
+          ButtonContains = ["取消连接图元", "Unjoin Elements"],
+          Click = "commandLink1",
+          ClickResult = 1001,
+        },
+        new OpenDialogFallbackButton
+        {
+          Label = "确定",
+          ButtonContains = ["确定", "OK"],
+          Click = "ok",
+          ClickResult = 1,
+        },
+        new OpenDialogFallbackButton
+        {
+          Label = "关闭",
+          ButtonContains = ["关闭", "Close"],
+          Click = "close",
+          ClickResult = 8,
         },
       ],
     };

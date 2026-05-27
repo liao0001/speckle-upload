@@ -13,31 +13,65 @@
     ],
     "dialogIdContains": []
   },
+  "unmatchedFallback": {
+    "enabled": true,
+    "tryButtons": [
+      {
+        "label": "取消连接图元",
+        "buttonContains": ["取消连接图元", "Unjoin Elements"],
+        "click": "commandLink1",
+        "clickResult": 1001
+      },
+      {
+        "label": "确定",
+        "buttonContains": ["确定", "OK"],
+        "click": "ok",
+        "clickResult": 1
+      },
+      {
+        "label": "关闭",
+        "buttonContains": ["关闭", "Close"],
+        "click": "close",
+        "clickResult": 8
+      }
+    ]
+  },
   "rules": [
     {
       "name": "fig2-unjoin-elements",
-      "titleContains": ["错误 - 不能忽略", "错误- 不能忽略"],
-      "messageContains": ["无法使图元保持连接", "cannot keep elements joined"],
+      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
+      "messageContains": [
+        "错误 - 不能忽略",
+        "错误- 不能忽略",
+        "无法使图元保持连接",
+        "cannot keep elements joined",
+        "不能忽略"
+      ],
+      "messageNotContains": ["取消升级"],
       "buttonActions": [
         {
           "buttonContains": ["取消连接图元", "Unjoin Elements"],
-          "click": "commandLink1"
+          "click": "commandLink1",
+          "clickResult": 1001
+        },
+        {
+          "buttonContains": ["Unjoin", "command link 2"],
+          "click": "commandLink2",
+          "clickResult": 1002
         }
-      ],
-      "dialogTypes": ["task", "messagebox"]
+      ]
     },
     {
       "name": "fig1-family-warning-ok",
-      "titleContains": [
-        "警告 — 0 错误，3 警告",
-        "警告 - 0 错误，3 警告",
-        "警告 — 0 错误",
-        "警告 - 0 错误"
-      ],
+      "dialogIdContains": ["Dialog_Revit_DocWarnDialog"],
       "messageContains": [
-        "族 “防撞侧石-样式一” 中出现错误但已自动解决，可能需要族创建者审阅",
+        "警告",
+        "0 错误",
+        "3 警告",
         "不能创建放样",
-        "错误解决方法: 删除图元"
+        "删除图元",
+        "防撞侧石",
+        "族"
       ],
       "messageNotContains": [
         "无法使图元保持连接",
@@ -47,24 +81,24 @@
       "buttonActions": [
         {
           "buttonContains": ["确定", "OK"],
-          "click": "ok"
+          "click": "ok",
+          "clickResult": 1
         }
-      ],
-      "dialogTypes": ["task", "messagebox"]
+      ]
     },
     {
       "name": "fig3-structural-analysis-upgrade-close",
-      "titleContains": ["结构分析模型升级"],
       "messageContains": [
+        "结构分析模型升级",
         "在升级过程中，某些与分析图元相关的注释、明细表、视图模板、过滤器和视图可能已修改或丢失"
       ],
       "buttonActions": [
         {
           "buttonContains": ["关闭", "Close"],
-          "click": "close"
+          "click": "close",
+          "clickResult": 8
         }
-      ],
-      "dialogTypes": ["task", "messagebox"]
+      ]
     },
     {
       "name": "incompatible-elements-close",
@@ -86,10 +120,10 @@
       "buttonActions": [
         {
           "buttonContains": ["关闭", "Close", "确定", "OK"],
-          "click": "close"
+          "click": "close",
+          "clickResult": 8
         }
-      ],
-      "dialogTypes": ["task", "messagebox"]
+      ]
     }
   ]
 }

@@ -54,6 +54,11 @@ public static class RevitOpenDialogSuppression
       return;
     }
 
+    if (TryHandleDocWarnByDialogId(args, dialogId, combined, buttonsText))
+    {
+      return;
+    }
+
     if (PluginSettings.AutoDismissAllOpenDialogs)
     {
       if (TryClick(args, new OpenDialogRule { Click = "close" }, null, "auto-dismiss-all"))
@@ -68,8 +73,15 @@ public static class RevitOpenDialogSuppression
     var rule = MatchRule(config, title, body, dialogId, dialogType, out var scanLines);
     if (rule == null)
     {
-      LogMatchResult(false, "未匹配 JSON 规则");
       LogRuleScanDetails(scanLines);
+      if (TryUnmatchedFallback(config, args, out var fallbackExplain))
+      {
+        LogMatchResult(true, fallbackExplain);
+        return;
+      }
+
+      LogUnmatchedNoAction(dialogId, dialogType, title, body, combined, buttonsText);
+      LogMatchResult(false, "未匹配 JSON 规则，兜底代点均未成功");
       return;
     }
 
@@ -158,7 +170,7 @@ public static class RevitOpenDialogSuppression
       return;
     }
 
-    PluginLog.Step("Doc", "规则扫描明细（titleContains/messageContains 均为 OR，组间为 AND）:");
+    PluginLog.Step("Doc", "规则扫描明细（title/message 均在全文匹配；组间 OR，组内 OR）:");
     foreach (var line in scanLines)
     {
       PluginLog.Step("Doc", $"  {line}");
@@ -211,6 +223,135 @@ public static class RevitOpenDialogSuppression
     return false;
   }
 
+  private static bool TryHandleDocWarnByDialogId(
+    DialogBoxShowingEventArgs args,
+    string dialogId,
+    string combined,
+    string? buttonsText
+  )
+  {
+    var text = NormalizeForMatch(combined);
+    var isDocWarnId = dialogId.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase);
+    var looksLikeJoin =
+      ContainsNormalized(text, "无法使图元保持连接")
+      || ContainsNormalized(text, "不能忽略")
+      || ContainsNormalized(text, "cannot keep elements joined");
+    var looksLikeWarn =
+      ContainsNormalized(text, "不能创建放样")
+      || (ContainsNormalized(text, "0 错误") && ContainsNormalized(text, "警告"));
+    var looksLikeDocWarn = isDocWarnId || looksLikeJoin || looksLikeWarn;
+
+    if (!looksLikeDocWarn)
+    {
+      return false;
+    }
+
+    if (!isDocWarnId)
+    {
+      PluginLog.Step("Doc", $"DocWarn 专用: DialogId={dialogId}，按正文启发式处理");
+    }
+    var isJoinError =
+      ContainsNormalized(text, "无法使图元保持连接")
+      || ContainsNormalized(text, "不能忽略")
+      || ContainsNormalized(text, "cannot keep elements joined");
+
+    if (isJoinError)
+    {
+      PluginLog.Step("Doc", "DocWarn 专用: 识别为连接错误 -> 尝试 commandLink1(1001)");
+      if (TryOverrideOnHierarchy(args, TaskDialogCommandLink1, "doc-warn-unjoin-1001"))
+      {
+        LogMatchResult(true, "DocWarn 专用 commandLink1/1001（取消连接图元）");
+        return true;
+      }
+
+      PluginLog.Step("Doc", "DocWarn 专用: 1001 失败，尝试 commandLink2(1002)");
+      if (TryOverrideOnHierarchy(args, TaskDialogCommandLink2, "doc-warn-unjoin-1002"))
+      {
+        LogMatchResult(true, "DocWarn 专用 commandLink2/1002（取消连接图元）");
+        return true;
+      }
+
+      LogMatchResult(false, "DocWarn 连接错误：1001/1002 均未成功代点");
+      return true;
+    }
+
+    PluginLog.Step("Doc", "DocWarn 专用: 识别为警告/族错误 -> 尝试 Ok(1) 与 MessageBoxOk(6)");
+    if (TryOverrideOnHierarchy(args, TaskDialogOk, "doc-warn-ok-1"))
+    {
+      LogMatchResult(true, "DocWarn 专用 Ok/1（确定）");
+      return true;
+    }
+
+    if (TryOverrideOnHierarchy(args, MessageBoxOk, "doc-warn-ok-6"))
+    {
+      LogMatchResult(true, "DocWarn 专用 MessageBoxOk/6（确定）");
+      return true;
+    }
+
+    LogMatchResult(false, "DocWarn 警告：Ok/1 与 6 均未成功代点");
+    return true;
+  }
+
+  private static bool TryUnmatchedFallback(
+    OpenDialogRulesConfig config,
+    DialogBoxShowingEventArgs args,
+    out string explain
+  )
+  {
+    explain = string.Empty;
+    var fallback = config.UnmatchedFallback;
+    if (!fallback.Enabled || fallback.TryButtons.Count == 0)
+    {
+      explain = "unmatchedFallback 未启用或未配置 tryButtons";
+      return false;
+    }
+
+    var index = 0;
+    foreach (var entry in fallback.TryButtons)
+    {
+      index++;
+      var label = string.IsNullOrWhiteSpace(entry.Label) ? $"(#{index})" : entry.Label;
+      var resultCode = entry.ClickResult ?? MapClick(args, entry.Click);
+      if (resultCode == null)
+      {
+        PluginLog.Step("Doc", $"unmatchedFallback 跳过 [{index}] {label}: 未知 click=\"{entry.Click}\"");
+        continue;
+      }
+
+      PluginLog.Step("Doc", $"unmatchedFallback 尝试 [{index}] {label} -> click={entry.Click} code={resultCode}");
+      if (TryOverrideOnHierarchy(args, resultCode.Value, $"unmatchedFallback/{label}"))
+      {
+        explain = $"未匹配 rules，unmatchedFallback 第 {index} 项成功: {label} (code={resultCode})";
+        return true;
+      }
+    }
+
+    explain = "unmatchedFallback 全部尝试均未成功代点";
+    return false;
+  }
+
+  private static void LogUnmatchedNoAction(
+    string dialogId,
+    string dialogType,
+    string title,
+    string body,
+    string combined,
+    string? buttonsText
+  )
+  {
+    PluginLog.Step("Doc", "========== 未匹配到处理措施（请据此补充 SpeckleUpload.open-dialog-rules.json）==========");
+    PluginLog.Step("Doc", $"DialogId={dialogId}");
+    PluginLog.Step("Doc", $"DialogType={dialogType}");
+    PluginLog.Step("Doc", $"Title={title}");
+    PluginLog.Step("Doc", $"Body={body}");
+    PluginLog.Step("Doc", $"CombinedText={combined}");
+    PluginLog.Step(
+      "Doc",
+      $"Buttons={buttonsText ?? "(Revit API 未提供按钮文案)"}"
+    );
+    PluginLog.Step("Doc", "========== 未匹配到处理措施 结束 ==========");
+  }
+
   private static OpenDialogRule? MatchRule(
     OpenDialogRulesConfig config,
     string title,
@@ -221,8 +362,7 @@ public static class RevitOpenDialogSuppression
   )
   {
     scanLines = new List<string>();
-    var titleText = title.ToLowerInvariant();
-    var bodyText = body.ToLowerInvariant();
+    var combinedNorm = NormalizeForMatch(CombineText(title, body, dialogId));
     var typeKey = dialogType.Contains("MessageBox", StringComparison.Ordinal) ? "messagebox" : "task";
 
     foreach (var rule in config.Rules)
@@ -236,28 +376,39 @@ public static class RevitOpenDialogSuppression
         continue;
       }
 
-      if (rule.TitleContains.Count > 0
-        && !rule.TitleContains.Any(k => titleText.Contains(k, StringComparison.OrdinalIgnoreCase)))
+      var titleRequired = rule.TitleContains.Count > 0;
+      var messageRequired = rule.MessageContains.Count > 0;
+      var titleHit = !titleRequired
+        || rule.TitleContains.Any(k => ContainsNormalized(combinedNorm, k));
+      var messageHit = !messageRequired
+        || rule.MessageContains.Any(k => ContainsNormalized(combinedNorm, k));
+
+      if (titleRequired && messageRequired)
+      {
+        if (!titleHit && !messageHit)
+        {
+          scanLines.Add($"[{name}] 跳过: titleContains 与 messageContains 均未命中（组间 OR）");
+          continue;
+        }
+      }
+      else if (titleRequired && !titleHit)
       {
         scanLines.Add($"[{name}] 跳过: titleContains 未命中（OR）");
         continue;
       }
-
-      if (rule.TitleNotContains.Any(k => titleText.Contains(k, StringComparison.OrdinalIgnoreCase)))
-      {
-        scanLines.Add($"[{name}] 跳过: titleNotContains 命中");
-        continue;
-      }
-
-      if (rule.MessageContains.Count > 0
-        && !rule.MessageContains.Any(k => bodyText.Contains(k, StringComparison.OrdinalIgnoreCase)))
+      else if (messageRequired && !messageHit)
       {
         scanLines.Add($"[{name}] 跳过: messageContains 未命中（OR）");
         continue;
       }
 
-      if (rule.MessageNotContains.Any(k => bodyText.Contains(k, StringComparison.OrdinalIgnoreCase)
-        || titleText.Contains(k, StringComparison.OrdinalIgnoreCase)))
+      if (rule.TitleNotContains.Any(k => ContainsNormalized(combinedNorm, k)))
+      {
+        scanLines.Add($"[{name}] 跳过: titleNotContains 命中");
+        continue;
+      }
+
+      if (rule.MessageNotContains.Any(k => ContainsNormalized(combinedNorm, k)))
       {
         scanLines.Add($"[{name}] 跳过: messageNotContains 命中");
         continue;
@@ -267,24 +418,20 @@ public static class RevitOpenDialogSuppression
       {
         if (string.IsNullOrWhiteSpace(dialogId))
         {
-          if (rule.TitleContains.Count == 0 && rule.MessageContains.Count == 0)
-          {
-            scanLines.Add($"[{name}] 跳过: 需要 DialogId 但为空");
-            continue;
-          }
+          scanLines.Add($"[{name}] 跳过: 需要 DialogId 但为空");
+          continue;
         }
-        else if (!rule.DialogIdContains.Any(k => dialogId.Contains(k, StringComparison.OrdinalIgnoreCase)))
+
+        if (!rule.DialogIdContains.Any(k => dialogId.Contains(k, StringComparison.OrdinalIgnoreCase)))
         {
           scanLines.Add($"[{name}] 跳过: dialogIdContains 未命中");
           continue;
         }
       }
 
-      if (rule.TitleContains.Count == 0
-        && rule.MessageContains.Count == 0
-        && rule.DialogIdContains.Count == 0)
+      if (!titleRequired && !messageRequired && rule.DialogIdContains.Count == 0)
       {
-        scanLines.Add($"[{name}] 跳过: 未配置 titleContains/messageContains/dialogIdContains");
+        scanLines.Add($"[{name}] 跳过: 未配置匹配条件");
         continue;
       }
 
@@ -302,7 +449,14 @@ public static class RevitOpenDialogSuppression
     out string explain
   )
   {
-    var haystack = $"{buttonsText} {combinedText}".Trim();
+    var haystack = NormalizeForMatch($"{buttonsText} {combinedText}".Trim());
+
+    if (rule.DialogIdContains.Any(id => id.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase))
+      && rule.ButtonActions.Count > 0)
+    {
+      explain = $"DocWarn 规则 [{rule.Name}] 直接采用首个 buttonActions";
+      return rule.ButtonActions[0];
+    }
 
     if (rule.ButtonActions.Count > 0)
     {
@@ -315,7 +469,7 @@ public static class RevitOpenDialogSuppression
         }
 
         if (!string.IsNullOrWhiteSpace(haystack)
-          && action.ButtonContains.Any(b => haystack.Contains(b, StringComparison.OrdinalIgnoreCase)))
+          && action.ButtonContains.Any(b => ContainsNormalized(haystack, b)))
         {
           explain = $"buttonActions 命中 [{string.Join("|", action.ButtonContains)}]";
           return action;
@@ -325,7 +479,7 @@ public static class RevitOpenDialogSuppression
       if (rule.ButtonActions.Count == 1)
       {
         explain =
-          $"API 未读到按钮文案，仅配置 1 条 buttonActions，按 [{string.Join("|", rule.ButtonActions[0].ButtonContains)}] 代点";
+          $"未读到按钮文案，仅 1 条 buttonActions，按 [{string.Join("|", rule.ButtonActions[0].ButtonContains)}] 代点";
         return rule.ButtonActions[0];
       }
 
@@ -384,53 +538,60 @@ public static class RevitOpenDialogSuppression
     int resultCode,
     string reason,
     string click
-  )
+  ) => TryOverrideOnHierarchy(args, resultCode, $"{reason} click={click}");
+
+  private static bool TryOverrideOnHierarchy(DialogBoxShowingEventArgs args, int resultCode, string reason)
   {
-    switch (args)
+    for (var type = args.GetType(); type != null; type = type.BaseType)
     {
-      case TaskDialogShowingEventArgs task:
-        task.OverrideResult(resultCode);
-        PluginLog.Step("Doc", $"代点成功: rule={reason} type=TaskDialog click={click} code={resultCode}");
-        return true;
-
-      case MessageBoxShowingEventArgs messageBox:
-        messageBox.OverrideResult(resultCode);
-        PluginLog.Step("Doc", $"代点成功: rule={reason} type=MessageBox click={click} code={resultCode}");
-        return true;
-
-      default:
-        return TryOverrideReflection(args, resultCode, reason, click);
-    }
-  }
-
-  private static bool TryOverrideReflection(
-    DialogBoxShowingEventArgs args,
-    int resultCode,
-    string reason,
-    string click
-  )
-  {
-    try
-    {
-      var method = args.GetType().GetMethod("OverrideResult", new[] { typeof(int) });
+      var method = type.GetMethod(
+        "OverrideResult",
+        BindingFlags.Instance | BindingFlags.Public,
+        null,
+        new[] { typeof(int) },
+        null
+      );
       if (method == null)
       {
-        PluginLog.Step("Doc", $"代点失败: {args.GetType().Name} 无 OverrideResult");
-        return false;
+        continue;
       }
 
-      method.Invoke(args, new object[] { resultCode });
-      PluginLog.Step(
-        "Doc",
-        $"代点成功: rule={reason} type={args.GetType().Name} click={click} code={resultCode} (reflection)"
-      );
-      return true;
+      try
+      {
+        method.Invoke(args, new object[] { resultCode });
+        PluginLog.Step("Doc", $"代点成功: {reason} type={type.Name} code={resultCode}");
+        return true;
+      }
+      catch (Exception ex)
+      {
+        PluginLog.Step("Doc", $"代点失败: {reason} type={type.Name} code={resultCode}: {ex.Message}");
+      }
     }
-    catch (Exception ex)
+
+    return false;
+  }
+
+  private static string NormalizeForMatch(string text)
+  {
+    if (string.IsNullOrWhiteSpace(text))
     {
-      PluginLog.Step("Doc", $"代点失败: reflection {ex.GetType().Name} {ex.Message}");
-      return false;
+      return string.Empty;
     }
+
+    return text
+      .Replace('—', '-')
+      .Replace('–', '-')
+      .Replace('－', '-')
+      .Replace('“', '"')
+      .Replace('”', '"')
+      .Replace('‘', '\'')
+      .Replace('’', '\'')
+      .ToLowerInvariant();
+  }
+
+  private static bool ContainsNormalized(string haystackNormalized, string keyword)
+  {
+    return haystackNormalized.Contains(NormalizeForMatch(keyword), StringComparison.Ordinal);
   }
 
   private static int? MapClick(DialogBoxShowingEventArgs args, string click)
