@@ -117,3 +117,7 @@
 
 ## 2026-05-27 19:27
 - 修复 CI 编译错误：删除重复的 `CreateDefaultDocWarnEmptyMessageSequence` 重载
+
+## 2026-05-27 19:38
+- 修复 DocWarn DialogBox 误用 code 1/6 导致 `Opening was canceled`：DialogBox 确定改用 `DialogResult.Retry(4)`（`docWarnOk`）
+- `OverrideResult` 检查返回值 `accepted`；每个弹窗只代点一次；日志增加 `DialogSurface`

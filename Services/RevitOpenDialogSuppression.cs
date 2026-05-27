@@ -15,6 +15,12 @@ public static class RevitOpenDialogSuppression
   private const int TaskDialogCommandLink1 = 1001;
   private const int TaskDialogCommandLink2 = 1002;
   private const int MessageBoxOk = 6;
+  /// <summary>
+  /// Dialog_Revit_DocWarnDialog 为 DialogBox（非 TaskDialog）时，Ok 需用 DialogResult.Retry(4)，
+  /// 用 1/6 会导致 Opening was canceled。参见 Autodesk 论坛 Dialog_Result_DocWarnDialog。
+  /// </summary>
+  private const int DialogBoxDocWarnOk = 4;
+  private const int DialogBoxDocWarnIgnore = 5;
   private const string DocWarnDialogId = "Dialog_Revit_DocWarnDialog";
 
   private static DateTime _armedUntilUtc = DateTime.MinValue;
@@ -142,6 +148,7 @@ public static class RevitOpenDialogSuppression
     PluginLog.Step("Doc", "---------- DialogBoxShowing 弹窗内容 ----------");
     PluginLog.Step("Doc", $"DialogId={dialogId}");
     PluginLog.Step("Doc", $"DialogType={dialogType}");
+    PluginLog.Step("Doc", $"DialogSurface={GetDialogSurfaceKind(args)}");
     PluginLog.Step("Doc", $"Title={title}");
     PluginLog.Step("Doc", $"Body={body}");
     PluginLog.Step("Doc", $"DeepText={deepText}");
@@ -299,39 +306,41 @@ public static class RevitOpenDialogSuppression
 
   private static bool TryDocWarnUnjoin(DialogBoxShowingEventArgs args, string reason)
   {
-    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> 尝试 1001/1002");
-    if (TryOverrideOnHierarchy(args, TaskDialogCommandLink1, "doc-warn-unjoin-1001"))
+    var code = ResolveOverrideCode(args, "commandLink1", null, DocWarnDialogId);
+    if (!code.HasValue)
     {
-      LogMatchResult(true, "DocWarn 专用 commandLink1/1001（取消连接图元）");
+      LogMatchResult(false, "DocWarn 连接错误：无法解析 commandLink1 代码");
       return true;
     }
 
-    if (TryOverrideOnHierarchy(args, TaskDialogCommandLink2, "doc-warn-unjoin-1002"))
+    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> code={code}");
+    if (TryOverrideResult(args, code.Value, "doc-warn-unjoin"))
     {
-      LogMatchResult(true, "DocWarn 专用 commandLink2/1002（取消连接图元）");
+      LogMatchResult(true, $"DocWarn 专用 取消连接图元 (code={code})");
       return true;
     }
 
-    LogMatchResult(false, "DocWarn 连接错误：1001/1002 均未成功代点");
+    LogMatchResult(false, $"DocWarn 连接错误：code={code} 未被 Revit 接受");
     return true;
   }
 
   private static bool TryDocWarnOk(DialogBoxShowingEventArgs args, string reason)
   {
-    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> 尝试确定 6/1");
-    if (TryOverrideOnHierarchy(args, MessageBoxOk, "doc-warn-ok-6"))
+    var code = ResolveOverrideCode(args, "docWarnOk", null, DocWarnDialogId);
+    if (!code.HasValue)
     {
-      LogMatchResult(true, "DocWarn 专用 MessageBoxOk/6（确定）");
+      LogMatchResult(false, "DocWarn 警告：无法解析确定按钮代码");
       return true;
     }
 
-    if (TryOverrideOnHierarchy(args, TaskDialogOk, "doc-warn-ok-1"))
+    PluginLog.Step("Doc", $"DocWarn 专用: {reason} -> code={code}");
+    if (TryOverrideResult(args, code.Value, "doc-warn-ok"))
     {
-      LogMatchResult(true, "DocWarn 专用 Ok/1（确定）");
+      LogMatchResult(true, $"DocWarn 专用 确定 (code={code})");
       return true;
     }
 
-    LogMatchResult(false, "DocWarn 警告：6/1 均未成功代点");
+    LogMatchResult(false, $"DocWarn 警告：code={code} 未被 Revit 接受");
     return true;
   }
 
@@ -350,61 +359,70 @@ public static class RevitOpenDialogSuppression
     var entryIndex = Math.Min(sequenceIndex - 1, sequence.Count - 1);
     var entry = sequence[entryIndex];
     var label = string.IsNullOrWhiteSpace(entry.Label) ? $"#{sequenceIndex}" : entry.Label;
-
-    foreach (var code in ResolveResultCodes(args, entry))
+    var code = ResolveOverrideCode(args, entry.Click, entry.ClickResult, DocWarnDialogId);
+    if (!code.HasValue)
     {
-      PluginLog.Step("Doc", $"DocWarn 顺序代点 [{sequenceIndex}] {label} code={code}");
-      if (TryOverrideOnHierarchy(args, code, $"doc-warn-seq-{sequenceIndex}/{label}"))
-      {
-        LogMatchResult(true, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 -> {label} (code={code})");
-        return true;
-      }
+      LogMatchResult(false, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 ({label}) 无法解析 click={entry.Click}");
+      return true;
     }
 
-    LogMatchResult(false, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 ({label}) 代点失败");
+    PluginLog.Step("Doc", $"DocWarn 顺序代点 [{sequenceIndex}] {label} code={code}");
+    if (TryOverrideResult(args, code.Value, $"doc-warn-seq-{sequenceIndex}/{label}"))
+    {
+      LogMatchResult(true, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 -> {label} (code={code})");
+      return true;
+    }
+
+    LogMatchResult(false, $"DocWarn 顺序第 {sequenceIndex} 个弹窗 ({label}) code={code} 未被接受");
     return true;
   }
 
-  private static IEnumerable<int> ResolveResultCodes(
+  private static string GetDialogSurfaceKind(DialogBoxShowingEventArgs args)
+  {
+    if (args is TaskDialogShowingEventArgs)
+    {
+      return "taskdialog";
+    }
+
+    if (args is MessageBoxShowingEventArgs)
+    {
+      return "messagebox";
+    }
+
+    return "dialogbox";
+  }
+
+  private static bool IsDocWarnDialog(string? dialogId) =>
+    dialogId != null && dialogId.Equals(DocWarnDialogId, StringComparison.OrdinalIgnoreCase);
+
+  private static int? ResolveOverrideCode(
     DialogBoxShowingEventArgs args,
-    OpenDialogFallbackButton entry
+    string click,
+    int? clickResult,
+    string? dialogId = null
   )
   {
-    if (entry.ClickResult.HasValue)
+    if (clickResult.HasValue)
     {
-      yield return entry.ClickResult.Value;
-      yield break;
+      return clickResult.Value;
     }
 
-    var click = entry.Click.Trim().ToLowerInvariant();
-    switch (click)
+    var clickNorm = click.Trim().ToLowerInvariant();
+    if (IsDocWarnDialog(dialogId) && GetDialogSurfaceKind(args) == "dialogbox")
     {
-      case "ok":
-        yield return MessageBoxOk;
-        yield return TaskDialogOk;
-        yield break;
-      case "commandlink1":
-        yield return TaskDialogCommandLink1;
-        yield return TaskDialogCommandLink2;
-        yield break;
-      case "commandlink2":
-        yield return TaskDialogCommandLink2;
-        yield break;
-      case "close":
-        yield return TaskDialogClose;
-        yield break;
-      case "cancel":
-        yield return TaskDialogCancel;
-        yield break;
-      default:
-        var mapped = MapClick(args, click);
-        if (mapped.HasValue)
-        {
-          yield return mapped.Value;
-        }
-
-        break;
+      return clickNorm switch
+      {
+        "ok" or "docwarnok" => DialogBoxDocWarnOk,
+        "commandlink1" or "unjoin" => TaskDialogCommandLink1,
+        "commandlink2" => TaskDialogCommandLink2,
+        "ignore" => DialogBoxDocWarnIgnore,
+        "close" => TaskDialogClose,
+        "cancel" => TaskDialogCancel,
+        _ => MapClick(args, clickNorm),
+      };
     }
+
+    return MapClick(args, clickNorm);
   }
 
   private static bool TryUnmatchedFallback(
@@ -426,7 +444,7 @@ public static class RevitOpenDialogSuppression
     {
       index++;
       var label = string.IsNullOrWhiteSpace(entry.Label) ? $"(#{index})" : entry.Label;
-      var resultCode = entry.ClickResult ?? MapClick(args, entry.Click);
+      var resultCode = entry.ClickResult ?? ResolveOverrideCode(args, entry.Click, null, args.DialogId);
       if (resultCode == null)
       {
         PluginLog.Step("Doc", $"unmatchedFallback 跳过 [{index}] {label}: 未知 click=\"{entry.Click}\"");
@@ -434,7 +452,7 @@ public static class RevitOpenDialogSuppression
       }
 
       PluginLog.Step("Doc", $"unmatchedFallback 尝试 [{index}] {label} -> click={entry.Click} code={resultCode}");
-      if (TryOverrideOnHierarchy(args, resultCode.Value, $"unmatchedFallback/{label}"))
+      if (TryOverrideResult(args, resultCode.Value, $"unmatchedFallback/{label}"))
       {
         explain = $"未匹配 rules，unmatchedFallback 第 {index} 项成功: {label} (code={resultCode})";
         return true;
@@ -639,14 +657,33 @@ public static class RevitOpenDialogSuppression
   {
     var click = buttonAction?.Click ?? rule.Click;
     var clickResult = buttonAction?.ClickResult ?? rule.ClickResult;
-    var resultCode = clickResult ?? MapClick(args, click);
+    var dialogId = args.DialogId;
+    var resultCode = clickResult ?? ResolveOverrideCode(args, click, null, dialogId);
     if (resultCode == null)
     {
       PluginLog.Step("Doc", $"代点失败: 未知 click=\"{click}\" rule={reason}");
       return false;
     }
 
-    return TryOverride(args, resultCode.Value, reason, click);
+    return TryOverrideResult(args, resultCode.Value, $"{reason} click={click}");
+  }
+
+  private static bool TryOverrideResult(DialogBoxShowingEventArgs args, int resultCode, string reason)
+  {
+    try
+    {
+      var accepted = args.OverrideResult(resultCode);
+      PluginLog.Step(
+        "Doc",
+        $"OverrideResult surface={GetDialogSurfaceKind(args)} code={resultCode} accepted={accepted} ({reason})"
+      );
+      return accepted;
+    }
+    catch (Exception ex)
+    {
+      PluginLog.Step("Doc", $"OverrideResult 异常: {reason} code={resultCode}: {ex.Message}");
+      return false;
+    }
   }
 
   private static bool TryOverride(
@@ -654,38 +691,7 @@ public static class RevitOpenDialogSuppression
     int resultCode,
     string reason,
     string click
-  ) => TryOverrideOnHierarchy(args, resultCode, $"{reason} click={click}");
-
-  private static bool TryOverrideOnHierarchy(DialogBoxShowingEventArgs args, int resultCode, string reason)
-  {
-    for (var type = args.GetType(); type != null; type = type.BaseType)
-    {
-      var method = type.GetMethod(
-        "OverrideResult",
-        BindingFlags.Instance | BindingFlags.Public,
-        null,
-        new[] { typeof(int) },
-        null
-      );
-      if (method == null)
-      {
-        continue;
-      }
-
-      try
-      {
-        method.Invoke(args, new object[] { resultCode });
-        PluginLog.Step("Doc", $"代点成功: {reason} type={type.Name} code={resultCode}");
-        return true;
-      }
-      catch (Exception ex)
-      {
-        PluginLog.Step("Doc", $"代点失败: {reason} type={type.Name} code={resultCode}: {ex.Message}");
-      }
-    }
-
-    return false;
-  }
+  ) => TryOverrideResult(args, resultCode, $"{reason} click={click}");
 
   private static string NormalizeForMatch(string text)
   {
@@ -722,11 +728,13 @@ public static class RevitOpenDialogSuppression
     {
       "close" => TaskDialogClose,
       "ok" => TaskDialogOk,
+      "docwarnok" => DialogBoxDocWarnOk,
       "cancel" => TaskDialogCancel,
       "yes" => TaskDialogYes,
       "no" => TaskDialogNo,
       "commandlink1" => TaskDialogCommandLink1,
       "commandlink2" => TaskDialogCommandLink2,
+      "ignore" => DialogBoxDocWarnIgnore,
       _ => null,
     };
   }

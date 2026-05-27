@@ -115,7 +115,8 @@ public static class OpenDialogRulesLoader
       new OpenDialogFallbackButton
       {
         Label = "确定（第1个弹窗-警告）",
-        Click = "ok",
+        Click = "docWarnOk",
+        ClickResult = 4,
       },
       new OpenDialogFallbackButton
       {

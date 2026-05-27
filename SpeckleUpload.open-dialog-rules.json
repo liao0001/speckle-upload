@@ -17,7 +17,8 @@
     "tryButtons": [
       {
         "label": "确定（第1个弹窗-警告）",
-        "click": "ok"
+        "click": "docWarnOk",
+        "clickResult": 4
       },
       {
         "label": "取消连接图元（第2个弹窗-连接）",
@@ -43,8 +44,8 @@
       {
         "label": "确定",
         "buttonContains": ["确定", "OK"],
-        "click": "ok",
-        "clickResult": 1
+        "click": "docWarnOk",
+        "clickResult": 4
       },
       {
         "label": "关闭",
@@ -99,8 +100,8 @@
       "buttonActions": [
         {
           "buttonContains": ["确定", "OK"],
-          "click": "ok",
-          "clickResult": 1
+          "click": "docWarnOk",
+          "clickResult": 4
         }
       ]
     },
