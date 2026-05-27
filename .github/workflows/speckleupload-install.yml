@@ -13,8 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # revit_version: ["2022", "2024"]
-        revit_version: ["2024"]
+        revit_version: ["2022", "2024"]
 
     steps:
       - name: Checkout
@@ -56,8 +55,38 @@ jobs:
           Write-Host "Bundle contents ($env:REVIT_VERSION):"
           Get-ChildItem $out | ForEach-Object { Write-Host $_.Name }
 
+      - name: Pack install bundle
+        shell: pwsh
+        env:
+          REVIT_VERSION: ${{ matrix.revit_version }}
+          GIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref_name }}
+        run: |
+          $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+          $shortSha = $env:GIT_SHA.Substring(0, 6)
+          $zipName = "speckle-upload-$env:REVIT_VERSION-${timestamp}-${shortSha}.zip"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
+          $bundle = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
+
+          @(
+            "product=SpeckleUpload",
+            "revit_version=$env:REVIT_VERSION",
+            "built_at=$timestamp",
+            "commit=$env:GIT_SHA",
+            "commit_short=$shortSha",
+            "ref=$env:GIT_REF"
+          ) | Set-Content -Path (Join-Path $bundle "BUILD_INFO.txt") -Encoding UTF8
+
+          if (Test-Path $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+          Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $zipPath -Force
+
+          Write-Host "Created package: $zipName"
+          "PACKAGE_ZIP=$zipName" >> $env:GITHUB_ENV
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: speckleupload-revit${{ matrix.revit_version }}-install
-          path: install-bundle/
+          name: ${{ env.PACKAGE_ZIP }}
+          path: ${{ github.workspace }}/${{ env.PACKAGE_ZIP }}

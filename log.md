@@ -79,3 +79,6 @@
 
 ## 2026-05-26 16:12
 - 修复 2024 编译：`Message` 改从 `TaskDialogShowingEventArgs` / `MessageBoxShowingEventArgs` 读取（Nice3point 基类无此属性）
+
+## 2026-05-27 10:05
+- CI 制品改为带版本信息的 zip：`speckle-upload-{2022|2024}-{yyyyMMddHHmmss}-{commit6}.zip`，包内附带 `BUILD_INFO.txt`；恢复 2022/2024 矩阵构建
