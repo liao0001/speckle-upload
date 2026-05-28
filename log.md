@@ -137,3 +137,7 @@
 
 ## 2026-05-27 22:13
 - 无人值守 + 可前台：DocWarn DialogBox 用 Win32 枚举可见按钮点击；弹窗出现后读 Static 正文匹配 rules，否则按 `docWarnEmptyMessageSequence`；自动 SetForegroundWindow Revit
+
+## 2026-05-28 10:22
+- Win32：仅点前台模态框；优先按可见正文智能匹配（删除图元→确定，连接→取消连接，结构分析→关闭）
+- 打开阶段所有 DialogBox 走 Win32；顺序兜底改为 确定→取消连接→关闭；打开后尝试关闭右下角警告条

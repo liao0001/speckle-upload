@@ -114,20 +114,21 @@ public static class OpenDialogRulesLoader
     [
       new OpenDialogFallbackButton
       {
-        Label = "取消连接图元（第1个弹窗-连接）",
+        Label = "确定（第1个-警告/删除图元）",
+        ButtonContains = ["确定", "OK", "删除图元"],
+        Click = "docWarnOk",
+        ClickResult = 4,
+      },
+      new OpenDialogFallbackButton
+      {
+        Label = "取消连接图元（第2个-连接）",
         ButtonContains = ["取消连接图元", "取消关联图元", "Unjoin Elements"],
         Click = "commandLink1",
         ClickResult = 1001,
       },
       new OpenDialogFallbackButton
       {
-        Label = "确定（第2个弹窗-警告）",
-        Click = "docWarnOk",
-        ClickResult = 4,
-      },
-      new OpenDialogFallbackButton
-      {
-        Label = "关闭（第3个弹窗）",
+        Label = "关闭（第3个-结构分析等）",
         Click = "close",
         ClickResult = 8,
       },

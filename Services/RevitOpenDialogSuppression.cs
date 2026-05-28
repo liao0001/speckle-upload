@@ -24,7 +24,7 @@ public static class RevitOpenDialogSuppression
   private const string DocWarnDialogId = "Dialog_Revit_DocWarnDialog";
 
   private static DateTime _armedUntilUtc = DateTime.MinValue;
-  private static int _docWarnSequenceIndex;
+  private static int _openDialogSequenceIndex;
   private static volatile bool _openDocumentInProgress;
 
   public static void BeginOpenDocument()
@@ -37,13 +37,25 @@ public static class RevitOpenDialogSuppression
   {
     _openDocumentInProgress = false;
     PluginLog.Step("Doc", "OpenDocument: 打开阶段结束");
+    var config = OpenDialogRulesLoader.Load();
+    Win32DialogClicker.RunOpenPhaseClick(() =>
+    {
+      if (Win32DialogClicker.TryDismissWarningStrip(45000, out var warnDetail))
+      {
+        PluginLog.Step("Doc", $"Win32: 警告条处理 {warnDetail}");
+      }
+      else
+      {
+        PluginLog.Step("Doc", $"Win32: 警告条处理未完成 {warnDetail}");
+      }
+    });
   }
 
   public static void ArmForOpen(TimeSpan? duration = null)
   {
     var seconds = PluginSettings.OpenDialogSuppressSeconds;
     _armedUntilUtc = DateTime.UtcNow.Add(duration ?? TimeSpan.FromSeconds(seconds));
-    _docWarnSequenceIndex = 0;
+    _openDialogSequenceIndex = 0;
     OpenDialogRulesLoader.Load();
     PluginLog.Step("Doc", $"OpenDialogSuppression: armed for {seconds}s");
   }
@@ -87,6 +99,12 @@ public static class RevitOpenDialogSuppression
     if (IsNeverTouch(config, title, body, dialogId, out var neverKeyword))
     {
       LogMatchResult(false, $"never 规则命中（关键词: {neverKeyword}），不代点");
+      return;
+    }
+
+    if (_openDocumentInProgress && GetDialogSurfaceKind(args) == "dialogbox")
+    {
+      ScheduleOpenPhaseWin32Click(config, dialogId, combined);
       return;
     }
 
@@ -306,11 +324,6 @@ public static class RevitOpenDialogSuppression
       $"DocWarn: 可读正文={hasReadableText} 可读按钮={hasReadableButtons} surface={surface}"
     );
 
-    if (isDocWarnId && surface == "dialogbox")
-    {
-      return ScheduleDocWarnWin32Click(config, haystack, combined, buttonsText);
-    }
-
     var rule = MatchRule(config, title, body, deepText, dialogId, dialogType, out var scanLines);
     if (rule != null)
     {
@@ -343,51 +356,33 @@ public static class RevitOpenDialogSuppression
       return TryDocWarnClickResolved(args, resolved, resolveReason);
     }
 
-    _docWarnSequenceIndex++;
+    _openDialogSequenceIndex++;
     PluginLog.Step(
       "Doc",
-      "DocWarn: Revit API 未提供可用正文与按钮文案（DialogBox 常见），"
-        + $"使用 docWarnEmptyMessageSequence 顺序兜底 第 {_docWarnSequenceIndex} 个"
+      "DocWarn: API 无正文，顺序兜底 第 " + _openDialogSequenceIndex + " 个"
     );
-    return TryDocWarnSequenceEntry(args, config, _docWarnSequenceIndex);
+    return TryDocWarnSequenceEntry(args, config, _openDialogSequenceIndex);
   }
 
-  private static bool ScheduleDocWarnWin32Click(
-    OpenDialogRulesConfig config,
-    string haystack,
-    string combined,
-    string? buttonsText
-  )
+  private static void ScheduleOpenPhaseWin32Click(OpenDialogRulesConfig config, string dialogId, string combined)
   {
-    List<string> fallbackCandidates;
-    string scheduleReason;
+    _openDialogSequenceIndex++;
+    var sequenceIndex = _openDialogSequenceIndex;
 
-    if (TryResolveDocWarnByContentOrButtons(haystack, config, out var resolved, out var resolveReason))
+    var sequence = config.DocWarnEmptyMessageSequence.TryButtons;
+    if (sequence.Count == 0)
     {
-      fallbackCandidates = BuildWin32KeywordsFromFallback(resolved);
-      scheduleReason = resolveReason;
-    }
-    else
-    {
-      _docWarnSequenceIndex++;
-      var sequence = config.DocWarnEmptyMessageSequence.TryButtons;
-      if (sequence.Count == 0)
-      {
-        sequence = OpenDialogRulesLoader.CreateDefaultDocWarnEmptyMessageSequence();
-      }
-
-      var entryIndex = Math.Min(_docWarnSequenceIndex - 1, sequence.Count - 1);
-      var entry = sequence[entryIndex];
-      fallbackCandidates = BuildWin32KeywordsFromFallback(entry);
-      scheduleReason = $"API 无正文，顺序第 {_docWarnSequenceIndex} 个（{entry.Label}）";
+      sequence = OpenDialogRulesLoader.CreateDefaultDocWarnEmptyMessageSequence();
     }
 
-    var sequenceIndex = _docWarnSequenceIndex;
+    var entryIndex = Math.Min(sequenceIndex - 1, sequence.Count - 1);
+    var entry = sequence[entryIndex];
+    var fallbackCandidates = BuildWin32KeywordsFromFallback(entry);
     var candidateLog = string.Join(" > ", fallbackCandidates);
 
-    Task.Run(() =>
+    Win32DialogClicker.RunOpenPhaseClick(() =>
     {
-      if (Win32DialogClicker.TryAutoClickDocWarnDialog(
+      if (Win32DialogClicker.TryAutoClickDialog(
         config,
         sequenceIndex,
         fallbackCandidates,
@@ -395,16 +390,18 @@ public static class RevitOpenDialogSuppression
         out var detail
       ))
       {
-        PluginLog.Step("Doc", $"Win32: 成功 {detail}");
+        PluginLog.Step("Doc", $"Win32: 成功 DialogId={dialogId} {detail}");
       }
       else
       {
-        PluginLog.Step("Doc", $"Win32: 失败 {detail} candidates={candidateLog}");
+        PluginLog.Step("Doc", $"Win32: 失败 DialogId={dialogId} {detail} candidates={candidateLog}");
       }
     });
 
-    LogMatchResult(true, $"DocWarn Win32 已调度（{scheduleReason}）候选: {candidateLog}");
-    return true;
+    LogMatchResult(
+      true,
+      $"打开阶段 Win32 已调度 #{sequenceIndex} DialogId={dialogId} 顺序候选: {candidateLog}"
+    );
   }
 
   private static List<string> BuildWin32KeywordsFromFallback(OpenDialogFallbackButton entry)

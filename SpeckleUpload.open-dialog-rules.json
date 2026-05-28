@@ -17,18 +17,19 @@
     "_comment": "仅当 Revit API 读不到弹窗正文/按钮时使用；能读到时按 rules 或 messageContains/buttonContains 匹配",
     "tryButtons": [
       {
-        "label": "取消连接图元（第1个弹窗-连接）",
+        "label": "确定（第1个-警告/删除图元）",
+        "buttonContains": ["确定", "OK", "删除图元"],
+        "click": "docWarnOk",
+        "clickResult": 4
+      },
+      {
+        "label": "取消连接图元（第2个-连接）",
         "buttonContains": ["取消连接图元", "取消关联图元", "Unjoin Elements"],
         "click": "commandLink1",
         "clickResult": 1001
       },
       {
-        "label": "确定（第2个弹窗-警告）",
-        "click": "docWarnOk",
-        "clickResult": 4
-      },
-      {
-        "label": "关闭（第3个弹窗）",
+        "label": "关闭（第3个-结构分析等）",
         "click": "close",
         "clickResult": 8
       }

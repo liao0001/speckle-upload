@@ -5,12 +5,13 @@ using SpeckleUpload.Models;
 namespace SpeckleUpload.Services;
 
 /// <summary>
-/// Dialog_Revit_DocWarnDialog (DialogBox) 在 Open 期间不能用 OverrideResult，改为枚举可见按钮并模拟点击。
+/// DialogBox 在 Open 期间不能用 OverrideResult；通过 Win32 点击前台模态框上的真实按钮。
 /// </summary>
 internal static class Win32DialogClicker
 {
   private const uint BmClick = 0x00F5;
   private const int SwRestore = 9;
+  private static readonly object OpenClickGate = new();
 
   private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -19,6 +20,12 @@ internal static class Win32DialogClicker
 
   [DllImport("user32.dll")]
   private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  private static extern IntPtr GetForegroundWindow();
+
+  [DllImport("user32.dll")]
+  private static extern IntPtr GetParent(IntPtr hWnd);
 
   [DllImport("user32.dll")]
   private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -43,22 +50,29 @@ internal static class Win32DialogClicker
     var hWnd = FindRevitMainWindow();
     if (hWnd == IntPtr.Zero)
     {
-      PluginLog.Step("Doc", "Win32: 未找到 Revit 主窗口标题");
+      PluginLog.Step("Doc", "Win32: 未找到 Revit 主窗口");
       return;
     }
 
     ShowWindow(hWnd, SwRestore);
     SetForegroundWindow(hWnd);
-    PluginLog.Step("Doc", "Win32: 已将 Revit 主窗口置前");
   }
 
-  /// <summary>
-  /// 轮询可见对话框：先按正文匹配规则选按钮；否则按候选列表顺序点击第一个可见按钮。
-  /// </summary>
-  public static bool TryAutoClickDocWarnDialog(
+  public static void RunOpenPhaseClick(Action clickAction)
+  {
+    Task.Run(() =>
+    {
+      lock (OpenClickGate)
+      {
+        clickAction();
+      }
+    });
+  }
+
+  public static bool TryAutoClickDialog(
     OpenDialogRulesConfig config,
     int sequenceIndex,
-    IReadOnlyList<string> fallbackCandidates,
+    IReadOnlyList<string> sequenceFallbackCandidates,
     int timeoutMs,
     out string? detail
   )
@@ -69,8 +83,9 @@ internal static class Win32DialogClicker
     while (Environment.TickCount < deadline)
     {
       TryActivateRevitMainWindow();
+      Thread.Sleep(200);
 
-      var snapshot = CollectVisibleDialogSnapshot();
+      var snapshot = CollectForegroundDialogSnapshot();
       if (snapshot.Buttons.Count == 0)
       {
         Thread.Sleep(150);
@@ -78,30 +93,139 @@ internal static class Win32DialogClicker
       }
 
       var visibleLog =
-        $"buttons=[{string.Join("|", snapshot.Buttons)}] static=[{Truncate(snapshot.StaticText, 200)}]";
-      PluginLog.Step("Doc", $"Win32: 可见弹窗 {visibleLog}");
+        $"buttons=[{string.Join("|", snapshot.Buttons)}] static=[{Truncate(snapshot.StaticText, 300)}]";
+      PluginLog.Step("Doc", $"Win32: 前台弹窗 {visibleLog}");
 
       var haystack = Normalize(snapshot.StaticText + " " + string.Join(" ", snapshot.Buttons));
-      if (TryPickCandidatesFromRules(config, haystack, out var ruleCandidates, out var ruleReason))
+
+      if (TryInferCandidatesFromVisibleText(haystack, out var inferred, out var inferReason)
+        && TryClickFirstVisibleButton(inferred, snapshot, out var inferredBtn))
       {
-        if (TryClickFirstVisibleButton(ruleCandidates, snapshot, out var matched))
-        {
-          detail = $"{ruleReason} -> [{matched}]";
-          return true;
-        }
+        detail = $"{inferReason} -> [{inferredBtn}]";
+        return true;
       }
 
-      if (TryClickFirstVisibleButton(fallbackCandidates, snapshot, out var fallbackMatched))
+      if (TryPickCandidatesFromRules(config, haystack, out var ruleCandidates, out var ruleReason)
+        && TryClickFirstVisibleButton(ruleCandidates, snapshot, out var ruleBtn))
       {
-        detail = $"顺序第{sequenceIndex}个 -> [{fallbackMatched}]";
+        detail = $"{ruleReason} -> [{ruleBtn}]";
+        return true;
+      }
+
+      if (TryClickFirstVisibleButton(sequenceFallbackCandidates, snapshot, out var seqBtn))
+      {
+        detail = $"顺序第{sequenceIndex}个 -> [{seqBtn}]";
         return true;
       }
 
       Thread.Sleep(150);
     }
 
-    detail = "超时：未找到可点击按钮";
+    detail = "超时：前台弹窗未找到可点按钮";
     return false;
+  }
+
+  /// <summary>打开完成后尝试关闭右下角「警告 - n 超出 m」等非模态提示条。</summary>
+  public static bool TryDismissWarningStrip(int timeoutMs, out string? detail)
+  {
+    detail = null;
+    var deadline = Environment.TickCount + timeoutMs;
+
+    while (Environment.TickCount < deadline)
+    {
+      TryActivateRevitMainWindow();
+      Thread.Sleep(300);
+
+      var snapshot = CollectRevitClientSnapshot();
+      var haystack = Normalize(snapshot.StaticText + " " + string.Join(" ", snapshot.Buttons));
+      if (!ContainsAny(
+        haystack,
+        "警告",
+        "超出",
+        "分析图元",
+        "analytical",
+        "warning"
+      ))
+      {
+        detail = "未发现右下角警告条";
+        return true;
+      }
+
+      PluginLog.Step("Doc", $"Win32: 警告条 static=[{Truncate(snapshot.StaticText, 200)}] buttons=[{string.Join("|", snapshot.Buttons)}]");
+
+      var dismissCandidates = new[]
+      {
+        "关闭",
+        "Close",
+        "忽略",
+        "解除",
+        "Dismiss",
+        "×",
+        "X",
+      };
+
+      if (TryClickFirstVisibleButton(dismissCandidates, snapshot, out var matched))
+      {
+        detail = $"已点击警告条按钮 [{matched}]";
+        return true;
+      }
+
+      Thread.Sleep(200);
+    }
+
+    detail = "超时：未能关闭警告条";
+    return false;
+  }
+
+  private static bool TryInferCandidatesFromVisibleText(
+    string haystackNormalized,
+    out List<string> candidates,
+    out string reason
+  )
+  {
+    candidates = new List<string>();
+    reason = string.Empty;
+
+    if (ContainsAny(
+      haystackNormalized,
+      "无法使图元保持连接",
+      "不能忽略",
+      "unjoin",
+      "cannot keep elements joined"
+    ))
+    {
+      candidates = ["取消连接图元", "取消关联图元", "Unjoin Elements"];
+      reason = "可见正文-连接错误";
+      return true;
+    }
+
+    if (ContainsAny(haystackNormalized, "结构分析模型升级"))
+    {
+      candidates = ["关闭", "Close"];
+      reason = "可见正文-结构分析";
+      return true;
+    }
+
+    if (ContainsAny(
+      haystackNormalized,
+      "删除图元",
+      "不能创建放样",
+      "0 错误",
+      "警告",
+      "族"
+    ))
+    {
+      candidates = ["确定", "OK"];
+      reason = "可见正文-警告/确定";
+      return true;
+    }
+
+    return false;
+  }
+
+  private static bool ContainsAny(string haystack, params string[] keys)
+  {
+    return keys.Any(k => haystack.Contains(Normalize(k), StringComparison.Ordinal));
   }
 
   private static bool TryPickCandidatesFromRules(
@@ -120,6 +244,7 @@ internal static class Win32DialogClicker
         || rule.TitleContains.Any(k => haystackNormalized.Contains(Normalize(k), StringComparison.Ordinal));
       var messageHit = rule.MessageContains.Count == 0
         || rule.MessageContains.Any(k => haystackNormalized.Contains(Normalize(k), StringComparison.Ordinal));
+
       if (rule.TitleContains.Count > 0 && rule.MessageContains.Count > 0)
       {
         if (!titleHit && !messageHit)
@@ -144,10 +269,7 @@ internal static class Win32DialogClicker
       foreach (var action in rule.ButtonActions)
       {
         candidates.AddRange(action.ButtonContains);
-        if (!string.IsNullOrWhiteSpace(action.Click))
-        {
-          candidates.AddRange(DefaultKeywordsForClick(action.Click));
-        }
+        candidates.AddRange(DefaultKeywordsForClick(action.Click));
       }
 
       if (candidates.Count > 0)
@@ -191,9 +313,19 @@ internal static class Win32DialogClicker
     return false;
   }
 
-  private static DialogSnapshot CollectVisibleDialogSnapshot()
+  private static DialogSnapshot CollectForegroundDialogSnapshot()
   {
     var snapshot = new DialogSnapshot();
+    var fg = GetForegroundWindow();
+    if (fg != IntPtr.Zero)
+    {
+      CollectWindowTree(fg, snapshot, maxDepth: 12);
+    }
+
+    if (snapshot.Buttons.Count > 0)
+    {
+      return snapshot;
+    }
 
     EnumWindows(
       (hWnd, _) =>
@@ -203,7 +335,20 @@ internal static class Win32DialogClicker
           return true;
         }
 
-        CollectInWindow(hWnd, snapshot);
+        var cls = ReadClassName(hWnd);
+        if (cls == "#32770")
+        {
+          var snap = new DialogSnapshot();
+          CollectInWindow(hWnd, snap);
+          if (snap.Buttons.Count > snapshot.Buttons.Count)
+          {
+            snapshot.Buttons.Clear();
+            snapshot.StaticParts.Clear();
+            snapshot.Buttons.AddRange(snap.Buttons);
+            snapshot.StaticParts.AddRange(snap.StaticParts);
+          }
+        }
+
         return true;
       },
       IntPtr.Zero
@@ -212,35 +357,60 @@ internal static class Win32DialogClicker
     return snapshot;
   }
 
-  private static void CollectInWindow(IntPtr hWnd, DialogSnapshot snapshot)
+  private static DialogSnapshot CollectRevitClientSnapshot()
   {
-    var className = ReadClassName(hWnd);
-    if (className.Equals("Button", StringComparison.OrdinalIgnoreCase))
+    var snapshot = new DialogSnapshot();
+    var revit = FindRevitMainWindow();
+    if (revit == IntPtr.Zero)
     {
-      var text = ReadWindowText(hWnd);
-      if (!string.IsNullOrWhiteSpace(text))
-      {
-        snapshot.Buttons.Add(new ButtonInfo(hWnd, text));
-      }
+      return snapshot;
     }
-    else if (className.Equals("Static", StringComparison.OrdinalIgnoreCase))
+
+    CollectInWindow(revit, snapshot);
+    return snapshot;
+  }
+
+  private static void CollectWindowTree(IntPtr hWnd, DialogSnapshot snapshot, int maxDepth)
+  {
+    if (maxDepth < 0)
     {
-      var text = ReadWindowText(hWnd);
-      if (!string.IsNullOrWhiteSpace(text) && text.Length > 2)
-      {
-        snapshot.StaticParts.Add(text);
-      }
+      return;
+    }
+
+    CollectInWindow(hWnd, snapshot);
+    var parent = GetParent(hWnd);
+    if (parent != IntPtr.Zero && parent != hWnd)
+    {
+      CollectWindowTree(parent, snapshot, maxDepth - 1);
     }
 
     EnumChildWindows(
       hWnd,
       (child, _) =>
       {
-        CollectInWindow(child, snapshot);
+        CollectWindowTree(child, snapshot, maxDepth - 1);
         return true;
       },
       IntPtr.Zero
     );
+  }
+
+  private static void CollectInWindow(IntPtr hWnd, DialogSnapshot snapshot)
+  {
+    var className = ReadClassName(hWnd);
+    if (className.Equals("Button", StringComparison.OrdinalIgnoreCase))
+    {
+      var text = ReadWindowText(hWnd);
+      snapshot.Buttons.Add(new ButtonInfo(hWnd, string.IsNullOrWhiteSpace(text) ? "(无标题按钮)" : text));
+    }
+    else if (className.Equals("Static", StringComparison.OrdinalIgnoreCase))
+    {
+      var text = ReadWindowText(hWnd);
+      if (!string.IsNullOrWhiteSpace(text) && text.Length > 1)
+      {
+        snapshot.StaticParts.Add(text);
+      }
+    }
   }
 
   private static IntPtr FindRevitMainWindow()
@@ -257,7 +427,7 @@ internal static class Win32DialogClicker
         var title = ReadWindowText(hWnd);
         if (title.Contains("Revit", StringComparison.OrdinalIgnoreCase)
           && (title.Contains("Autodesk", StringComparison.OrdinalIgnoreCase)
-            || title.Contains("RVT", StringComparison.OrdinalIgnoreCase)))
+            || title.Contains(".rvt", StringComparison.OrdinalIgnoreCase)))
         {
           found = hWnd;
           return false;
@@ -273,7 +443,7 @@ internal static class Win32DialogClicker
   private static List<string> DistinctCandidates(IEnumerable<string> items)
   {
     return items
-      .Where(s => !string.IsNullOrWhiteSpace(s))
+      .Where(s => !string.IsNullOrWhiteSpace(s) && s != "(无标题按钮)")
       .Distinct(StringComparer.OrdinalIgnoreCase)
       .ToList();
   }
@@ -284,24 +454,24 @@ internal static class Win32DialogClicker
     {
       case "commandlink1":
       case "unjoin":
-        yield return "取消连接图元";
-        yield return "取消关联图元";
-        yield return "Unjoin Elements";
-        yield break;
+        return ["取消连接图元", "取消关联图元", "Unjoin Elements"];
       case "ok":
       case "docwarnok":
-        yield return "确定";
-        yield return "OK";
-        yield break;
+        return ["确定", "OK"];
       case "close":
-        yield return "关闭";
-        yield return "Close";
-        yield break;
+        return ["关闭", "Close"];
+      default:
+        return Array.Empty<string>();
     }
   }
 
   private static bool TextMatches(string controlText, string expected)
   {
+    if (string.IsNullOrWhiteSpace(controlText) || controlText == "(无标题按钮)")
+    {
+      return false;
+    }
+
     return controlText.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0
       || expected.IndexOf(controlText, StringComparison.OrdinalIgnoreCase) >= 0;
   }
