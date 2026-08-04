@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # revit_version: ["2022", "2024"]
-        revit_version: ["2024"]
+        revit_version: ["2022", "2024"]
+        # revit_version: ["2024"]
 
     steps:
       - name: Checkout

@@ -1,6 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using RevitSharedResources.Helpers.Extensions;
+using SpeckleUpload;
 
 namespace SpeckleUpload.Services;
 
@@ -199,15 +200,26 @@ public static class DocumentService
     };
 
     PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument (dialog suppression armed)");
-    RevitOpenDialogSuppression.ArmForOpen();
-    RevitOpenDialogSuppression.BeginOpenDocument();
+    if (PluginSettings.EnableDialogSuppression)
+    {
+      RevitOpenDialogSuppression.ArmForOpen();
+      RevitOpenDialogSuppression.BeginOpenDocument();
+    }
+    else
+    {
+      PluginLog.Step("Doc", "OpenDocument: built-in dialog suppression disabled (use AHK or SPECKLE_UPLOAD_ENABLE_DIALOG_SUPPRESSION)");
+    }
+
     try
     {
       uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
     }
     finally
     {
-      RevitOpenDialogSuppression.EndOpenDocument();
+      if (PluginSettings.EnableDialogSuppression)
+      {
+        RevitOpenDialogSuppression.EndOpenDocument();
+      }
     }
 
     var activeDoc = uiApp.ActiveUIDocument?.Document;

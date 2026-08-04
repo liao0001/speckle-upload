@@ -98,11 +98,39 @@ public sealed class LwhaleResponse
 
 ---
 
-## 3. 同步结果回调（插件 → speckle_sync）
+## 3. 进度与结果回调（插件 → speckle_sync）
 
-插件在 **Speckle 上传流程结束**（成功或失败）后，向本服务上报结果。
+打开文档后、解析/上传过程中、以及任务结束时，插件均 **POST 同一地址** `/api/callback`（或请求体 `callbackUrl`）。
 
-### 3.1 请求
+过程中为 **异步** 上报（失败不中断上传）；最终结果为 **同步** 等待响应。
+
+### 3.1 进度字段（snake_case）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `progress` | string | 阶段文本：`打开` / `解析` / `上传` / `完成` |
+| `progress_index` | int | 解析阶段 = 转换循环 `index`（1、500、1000…）；上传开始 = `1`；完成 = `object_count` |
+
+过程中回调示例（解析中）：
+
+```json
+{
+  "request_id": "curl-test-001",
+  "file_path": "D:\\testrvt\\test2.rvt",
+  "stream_id": "1183495a7b",
+  "success": false,
+  "progress": "解析",
+  "progress_index": 1000
+}
+```
+
+上报频率（`progress=解析`）：与日志一致，在 `1`、每 `500` 个、最后一个图元时上报。
+
+### 3.2 最终结果回调
+
+插件在 **Speckle 上传流程结束**（成功或失败）后再次 POST `/api/callback`，包含完整业务字段 + `progress=完成`。
+
+### 3.3 请求
 
 ```http
 POST /api/callback
@@ -115,7 +143,7 @@ Content-Type: application/json; charset=utf-8
 
 **无需** `Authorization` 头。
 
-### 3.2 请求体（全部 snake_case）
+### 3.4 请求体（全部 snake_case）
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -129,8 +157,10 @@ Content-Type: application/json; charset=utf-8
 | `branch_name` | string | 否 | 分支名 |
 | `commit_message` | string | 否 | 提交说明（UTF-8） |
 | `error` | string | 否 | 失败时的错误信息；成功可为 `null` 或 `""` |
+| `progress` | string | 否 | `打开` / `解析` / `上传` / `完成` |
+| `progress_index` | int | 否 | 见 3.1 |
 
-### 3.3 请求示例
+### 3.5 请求示例
 
 **成功：**
 
@@ -145,6 +175,8 @@ Content-Type: application/json; charset=utf-8
   "object_id": "9ee4510e89ddfacedecfff1ff0869f84",
   "commit_id": "a1b2c3d4e5f6789012345678abcdef01",
   "object_count": 939,
+  "progress": "完成",
+  "progress_index": 939,
   "error": null
 }
 ```
@@ -160,16 +192,18 @@ Content-Type: application/json; charset=utf-8
   "object_id": null,
   "commit_id": null,
   "object_count": 0,
+  "progress": "完成",
+  "progress_index": 0,
   "error": "File not found: D:\\testrvt\\missing.rvt"
 }
 ```
 
-### 3.4 服务端行为
+### 3.6 服务端行为
 
 1. 写入 lwhale 表单 **`sync_logs`**（无论成功失败）  
 2. 若 `success == false`，向企微机器人发送告警（Webhook 在服务端配置）  
 
-### 3.5 响应示例
+### 3.7 响应示例
 
 **成功：**
 
@@ -192,7 +226,7 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-### 3.6 curl 自测（Mac / Linux）
+### 3.8 curl 自测（Mac / Linux）
 
 将端口改为实际 `http.port`：
 
@@ -209,6 +243,8 @@ curl -sS -X POST "http://127.0.0.1:6689/api/callback" \
     "object_id": "9ee4510e89ddfacedecfff1ff0869f84",
     "commit_id": "a1b2c3d4e5f6789012345678abcdef01",
     "object_count": 939,
+    "progress": "完成",
+    "progress_index": 939,
     "error": null
   }'
 ```
@@ -217,7 +253,14 @@ curl -sS -X POST "http://127.0.0.1:6689/api/callback" \
 
 ## 4. 接收上传任务（speckle_sync → 插件）
 
-由 **speckle_sync** 主动调用插件 `HttpUploadServer`（默认 `6688`）。
+由 **speckle_sync** 主动调用插件 `HttpUploadServer`：
+
+| Revit 版本 | 默认端口 |
+|------------|----------|
+| 2022 | `6687` |
+| 2024 | `6688` |
+
+可通过环境变量 `SPECKLE_UPLOAD_HTTP_PORT` 覆盖。
 
 ### 4.1 请求
 
@@ -237,7 +280,7 @@ Content-Type: application/json; charset=utf-8
 | `branchName` | 分支 |
 | `commitMessage` | 提交说明 |
 | `requestId` | 请求 ID |
-| `callbackUrl` | 完成后 POST 的地址，如 `http://127.0.0.1:6689/api/callback` |
+| `callbackUrl` | 进度与完成后 POST 的地址，如 `http://127.0.0.1:6689/api/callback` |
 
 ### 4.2 插件立即响应
 
@@ -279,11 +322,11 @@ GET http://127.0.0.1:6688/health
 ## 5. 插件实现清单
 
 - [x] 回调 URL 默认 `http://127.0.0.1:6689/api/callback`，支持 `callbackUrl` 与 `SPECKLE_UPLOAD_CALLBACK_URL`  
-- [x] 回调请求体字段全部 **snake_case**  
+- [x] 回调请求体字段全部 **snake_case**，含 `progress` / `progress_index`  
 - [x] 解析本服务响应时判断 **`ret == 0`**  
 - [x] 失败时读取 `error` 字段  
 - [x] `/upload` 同步响应改为 `ret` / `msg` / `error`  
-- [x] 处理完成后异步 POST 回调；回调失败写入插件日志并拼入上报 `error`  
+- [x] 打开/解析/上传过程中异步 POST 回调；最终同步 POST；回调失败写入插件日志  
 
 ---
 
@@ -307,3 +350,4 @@ wecom:
 | 日期 | 说明 |
 |------|------|
 | 2026-05-19 | 回调体 snake_case；响应 lwhale `rr`；支持 `callbackUrl`；默认 `/api/callback` |
+| 2026-08-03 | 默认端口 2022=6687、2024=6688；进度合并至 `/api/callback`（`progress`/`progress_index`）；弹窗默认关闭 |

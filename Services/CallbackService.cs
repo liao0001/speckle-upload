@@ -19,7 +19,7 @@ public static class CallbackService
     var url = ResolveCallbackUrl(callbackUrl);
     PluginLog.Step(
       "Callback",
-      $"SendAsync: begin url={url} success={payload.Success} requestId={payload.RequestId}"
+      $"SendAsync: begin url={url} success={payload.Success} requestId={payload.RequestId} progress={payload.Progress ?? "-"} progress_index={payload.ProgressIndex?.ToString() ?? "-"}"
     );
 
     var json = JsonConvert.SerializeObject(payload, CallbackJsonSettings);
@@ -61,7 +61,25 @@ public static class CallbackService
       throw new InvalidOperationException($"Callback rejected: {detail}");
     }
 
-    PluginLog.Step("Callback", $"SendAsync: end OK ret=0");
+    PluginLog.Step("Callback", "SendAsync: end OK ret=0");
+  }
+
+  public static void SendFireAndForget(UploadCallbackPayload payload, string? callbackUrl = null)
+  {
+    _ = Task.Run(async () =>
+    {
+      try
+      {
+        await SendAsync(payload, callbackUrl).ConfigureAwait(false);
+      }
+      catch (Exception ex)
+      {
+        PluginLog.Step(
+          "Callback",
+          $"status report failed requestId={payload.RequestId} progress={payload.Progress}: {ex.Message}"
+        );
+      }
+    });
   }
 
   private static string ResolveCallbackUrl(string? callbackUrl)

@@ -54,7 +54,15 @@ public class SpeckleUploadApp : IExternalApplication
 
     PluginLog.Step("App", "OnApplicationInitialized: Idling subscribed");
     _uiApp.Idling += OnIdling;
-    _uiApp.DialogBoxShowing += OnDialogBoxShowing;
+    if (PluginSettings.EnableDialogSuppression)
+    {
+      _uiApp.DialogBoxShowing += OnDialogBoxShowing;
+      PluginLog.Step("App", "OnApplicationInitialized: DialogBoxShowing subscribed");
+    }
+    else
+    {
+      PluginLog.Step("App", "OnApplicationInitialized: built-in dialog suppression disabled");
+    }
 
     _server = new HttpUploadServer(_handler);
     _server.Start();
@@ -76,6 +84,11 @@ public class SpeckleUploadApp : IExternalApplication
 
   private static void OnDialogBoxShowing(object sender, DialogBoxShowingEventArgs e)
   {
+    if (!PluginSettings.EnableDialogSuppression)
+    {
+      return;
+    }
+
     RevitOpenDialogSuppression.Handle(e);
   }
 }

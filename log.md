@@ -141,3 +141,9 @@
 ## 2026-05-28 10:22
 - Win32：仅点前台模态框；优先按可见正文智能匹配（删除图元→确定，连接→取消连接，结构分析→关闭）
 - 打开阶段所有 DialogBox 走 Win32；顺序兜底改为 确定→取消连接→关闭；打开后尝试关闭右下角警告条
+
+## 2026-08-03 22:22
+- 默认 HTTP 端口：Revit 2022=6687、2024=6688（`SPECKLE_UPLOAD_HTTP_PORT` 可覆盖）
+- 内置弹窗处理默认关闭（AHK）；`SPECKLE_UPLOAD_ENABLE_DIALOG_SUPPRESSION=1` 才启用
+- 进度合并至 `/api/callback`：新增 `progress`（打开/解析/上传/完成）、`progress_index`（解析=convert index，上传=1，完成=object_count）
+- 移除独立 `/api/progress` 与 `progressUrl`

@@ -15,14 +15,19 @@ namespace SpeckleUpload.Services;
 public static class SpeckleSendService
 {
   /// <summary>在 Revit ExternalEvent 线程上同步执行，避免 await 切到线程池后无法安全使用 Revit API。</summary>
-  public static UploadCallbackPayload SendPhysicalObjects(Document document, UploadRequest request)
+  public static UploadCallbackPayload SendPhysicalObjects(
+    Document document,
+    UploadRequest request,
+    UploadCallbackReporter? reporter = null
+  )
   {
-    return SendPhysicalObjectsCore(document, request).GetAwaiter().GetResult();
+    return SendPhysicalObjectsCore(document, request, reporter).GetAwaiter().GetResult();
   }
 
   private static async Task<UploadCallbackPayload> SendPhysicalObjectsCore(
     Document document,
-    UploadRequest request
+    UploadRequest request,
+    UploadCallbackReporter? reporter
   )
   {
     PluginLog.Step("Speckle", $"SendPhysicalObjects: begin requestId={request.RequestId}");
@@ -45,6 +50,7 @@ public static class SpeckleSendService
     }
 
     PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: physical count={physicalObjects.Count}");
+    reporter?.BeginConvert(physicalObjects.Count);
 
     if (converter is not IRevitCommitObjectBuilderExposer builderExposer)
     {
@@ -82,6 +88,8 @@ public static class SpeckleSendService
       {
         PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: convert loop progress {index}/{physicalObjects.Count}");
       }
+
+      reporter?.ReportConvert(index);
 
       if (!converter.CanConvertToSpeckle(element))
       {
@@ -148,6 +156,7 @@ public static class SpeckleSendService
     try
     {
       PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: Operations.Send begin");
+      reporter?.ReportUploadStart();
       objectId = await Operations.Send(commitObject, transports).ConfigureAwait(true);
       PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}");
     }

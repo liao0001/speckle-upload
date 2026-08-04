@@ -1,4 +1,5 @@
 using Autodesk.Revit.UI;
+using SpeckleUpload;
 using SpeckleUpload.Models;
 
 namespace SpeckleUpload.Services;
@@ -132,6 +133,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
     PluginLog.Step("UploadHandler", $"Execute: start requestId={request.RequestId} file={request.FilePath}");
 
     UploadCallbackPayload payload;
+    var reporter = new UploadCallbackReporter(request);
 
     try
     {
@@ -139,8 +141,9 @@ public sealed class UploadEventHandler : IExternalEventHandler
       var document = DocumentService.PrepareDocumentForUpload(app, request.FilePath);
 
       RevitOpenDialogSuppression.CompleteOpenPhase();
+      reporter.ReportOpened();
       PluginLog.Step("UploadHandler", "Execute: step SpeckleSend (dialog suppression must be off)");
-      payload = SpeckleSendService.SendPhysicalObjects(document, request);
+      payload = SpeckleSendService.SendPhysicalObjects(document, request, reporter);
 
       PluginLog.Step("UploadHandler", $"Execute: SpeckleSend OK objectId={payload.ObjectId}");
     }
@@ -161,6 +164,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
     try
     {
+      reporter.ApplyFinalProgress(payload);
       PluginLog.Step("UploadHandler", "Execute: step Callback");
       CallbackService.SendAsync(payload, request.CallbackUrl).GetAwaiter().GetResult();
       PluginLog.Step("UploadHandler", $"Execute: callback OK success={payload.Success}");

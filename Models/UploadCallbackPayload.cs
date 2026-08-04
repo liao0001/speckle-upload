@@ -33,4 +33,11 @@ public sealed class UploadCallbackPayload
 
   [JsonProperty("error")]
   public string? Error { get; set; }
+
+  /// <summary>阶段文本：打开 / 解析 / 上传 / 完成。</summary>
+  [JsonProperty("progress")]
+  public string? Progress { get; set; }
+
+  [JsonProperty("progress_index")]
+  public int? ProgressIndex { get; set; }
 }
