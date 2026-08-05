@@ -195,11 +195,12 @@ public static class DocumentService
     var modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(filePath);
     var openOptions = new OpenOptions
     {
-      DetachFromCentralOption = DetachFromCentralOption.DoNotDetach,
+      DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets,
+      AllowOpeningLocalByWrongUser = true,
       Audit = false,
     };
 
-    PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument (dialog suppression armed)");
+    PluginLog.Step("Doc", "OpenDocument: OpenOptions detach=DetachAndDiscardWorksets AllowOpeningLocalByWrongUser=true");
     if (PluginSettings.EnableDialogSuppression)
     {
       RevitOpenDialogSuppression.ArmForOpen();
@@ -210,6 +211,7 @@ public static class DocumentService
       PluginLog.Step("Doc", "OpenDocument: built-in dialog suppression disabled (use AHK or SPECKLE_UPLOAD_ENABLE_DIALOG_SUPPRESSION)");
     }
 
+    PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument");
     try
     {
       uiApp.OpenAndActivateDocument(modelPath, openOptions, false);

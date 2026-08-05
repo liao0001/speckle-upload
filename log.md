@@ -147,3 +147,6 @@
 - 内置弹窗处理默认关闭（AHK）；`SPECKLE_UPLOAD_ENABLE_DIALOG_SUPPRESSION=1` 才启用
 - 进度合并至 `/api/callback`：新增 `progress`（打开/解析/上传/完成）、`progress_index`（解析=convert index，上传=1，完成=object_count）
 - 移除独立 `/api/progress` 与 `progressUrl`
+
+## 2026-08-04 22:57
+- 打开 RVT 默认 `DetachAndDiscardWorksets`（从中心分离）；并设 `AllowOpeningLocalByWrongUser=true` 避免他人 local 文件无法打开
