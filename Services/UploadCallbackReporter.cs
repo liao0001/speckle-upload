@@ -57,6 +57,7 @@ public sealed class UploadCallbackReporter
   public void ApplyFinalProgress(UploadCallbackPayload payload)
   {
     payload.Progress = "完成";
+    payload.IsFinal = true;
     if (payload.ObjectCount > 0)
     {
       payload.ProgressIndex = payload.ObjectCount;
@@ -77,7 +78,7 @@ public sealed class UploadCallbackReporter
       BranchName = string.IsNullOrWhiteSpace(_request.BranchName) ? "main" : _request.BranchName,
       Progress = progress,
       ProgressIndex = progressIndex,
-      Success = false,
+      IsFinal = false,
     };
 
     PluginLog.Step(

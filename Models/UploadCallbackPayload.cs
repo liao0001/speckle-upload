@@ -8,7 +8,11 @@ public sealed class UploadCallbackPayload
   public string? RequestId { get; set; }
 
   [JsonProperty("success")]
-  public bool Success { get; set; }
+  public bool? Success { get; set; }
+
+  /// <summary>是否为最终结果回调。进度上报为 false，仅最终一次为 true。</summary>
+  [JsonProperty("is_final")]
+  public bool? IsFinal { get; set; }
 
   [JsonProperty("file_path")]
   public string? FilePath { get; set; }

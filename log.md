@@ -167,3 +167,6 @@
 
 ## 2026-08-05 15:35
 - 修复编译：`Operations.Send` 的 `transports` 参数改为 `List<ITransport>`
+
+## 2026-08-05 16:25
+- 进度 callback 不再发 `success=false`；新增 `is_final`（进度=false，最终=true），避免 speckle_sync 误判失败
