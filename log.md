@@ -157,3 +157,10 @@
 
 ## 2026-08-05 14:49
 - 修复 net48 编译：`CallbackService` 响应体预览改用 `Substring`，避免 `System.Index`/`System.Range` 语法
+
+## 2026-08-05 15:15
+- `Operations.Send` 增加 onProgress 回调与 15s 心跳日志；上传进度 `progress_index` 随 Speckle 上报（每 500）
+- 网络阶段 `ConfigureAwait(false)`，CommitCreate 同步加耗时日志
+
+## 2026-08-05 15:18
+- 回调 HTTP 默认超时由 30s 改为 **20 分钟**（1200s，`SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS` 可覆盖）

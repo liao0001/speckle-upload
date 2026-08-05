@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Diagnostics;
 using Autodesk.Revit.DB;
@@ -166,12 +167,51 @@ public static class SpeckleSendService
     string objectId;
     try
     {
-      PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: Operations.Send begin");
+      PluginLog.Step(
+        "Speckle",
+        $"SendPhysicalObjectsAsync: Operations.Send begin (upload to {serverUrl}, converted={convertedCount})"
+      );
       reporter?.ReportUploadStart();
+
+      var lastUploadReport = 0;
+      Action<ConcurrentDictionary<string, int>> onProgress = dict =>
+      {
+        var uploaded = 0;
+        foreach (var pair in dict)
+        {
+          uploaded += pair.Value;
+        }
+
+        PluginLog.Step(
+          "Speckle",
+          $"Operations.Send onProgress {FormatProgressDict(dict)} uploadedTotal={uploaded}"
+        );
+
+        if (uploaded <= 1 || uploaded - lastUploadReport >= 500)
+        {
+          lastUploadReport = uploaded;
+          reporter?.ReportUpload(uploaded);
+        }
+      };
+
       var sendWatch = Stopwatch.StartNew();
-      objectId = await Operations.Send(commitObject, transports).ConfigureAwait(true);
+      using var heartbeat = StartSendHeartbeat(sendWatch);
+      objectId = await Operations
+        .Send(
+          @object: commitObject,
+          cancellationToken: CancellationToken.None,
+          transports: transports,
+          onProgressAction: onProgress,
+          onErrorAction: null,
+          disposeTransports: false
+        )
+        .ConfigureAwait(false);
       sendWatch.Stop();
-      PluginLog.StepElapsed("Speckle", $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}", sendWatch.ElapsedMilliseconds);
+      PluginLog.StepElapsed(
+        "Speckle",
+        $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}",
+        sendWatch.ElapsedMilliseconds
+      );
     }
     catch (Exception ex)
     {
@@ -195,10 +235,12 @@ public static class SpeckleSendService
         "Speckle",
         $"SendPhysicalObjectsAsync: CommitCreate begin branchName={commitInput.branchName} streamId={commitInput.streamId} messageLen={commitMessage.Length}"
       );
+      var commitWatch = Stopwatch.StartNew();
 #pragma warning disable CS0618
-      var commitId = await client.CommitCreate(commitInput).ConfigureAwait(true);
+      var commitId = await client.CommitCreate(commitInput).ConfigureAwait(false);
 #pragma warning restore CS0618
-      PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: CommitCreate end commitId={commitId}");
+      commitWatch.Stop();
+      PluginLog.StepElapsed("Speckle", $"SendPhysicalObjectsAsync: CommitCreate end commitId={commitId}", commitWatch.ElapsedMilliseconds);
 
       PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: end OK");
       return new UploadCallbackPayload
@@ -253,5 +295,44 @@ public static class SpeckleSendService
     {
       PluginLog.Step("Speckle", $"CommitCreate GraphQL: {gqlEx}");
     }
+  }
+
+  private static IDisposable StartSendHeartbeat(Stopwatch sendWatch)
+  {
+    var cts = new CancellationTokenSource();
+    _ = Task.Run(
+      async () =>
+      {
+        try
+        {
+          while (!cts.Token.IsCancellationRequested)
+          {
+            await Task.Delay(15000, cts.Token).ConfigureAwait(false);
+            PluginLog.StepElapsed(
+              "Speckle",
+              "Operations.Send still running (heartbeat)",
+              sendWatch.ElapsedMilliseconds
+            );
+          }
+        }
+        catch (OperationCanceledException)
+        {
+          // expected when send completes
+        }
+      },
+      cts.Token
+    );
+
+    return cts;
+  }
+
+  private static string FormatProgressDict(ConcurrentDictionary<string, int> dict)
+  {
+    if (dict.IsEmpty)
+    {
+      return "(empty)";
+    }
+
+    return string.Join(", ", dict.Select(pair => $"{pair.Key}={pair.Value}"));
   }
 }

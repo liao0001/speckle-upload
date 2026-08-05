@@ -45,8 +45,14 @@ public sealed class UploadCallbackReporter
 
   public void ReportUpload(int progressIndex)
   {
-    Report("上传", progressIndex);
+    if (progressIndex <= 1 || progressIndex - _lastUploadReport >= 500)
+    {
+      _lastUploadReport = progressIndex;
+      Report("上传", progressIndex);
+    }
   }
+
+  private int _lastUploadReport;
 
   public void ApplyFinalProgress(UploadCallbackPayload payload)
   {

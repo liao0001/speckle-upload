@@ -48,13 +48,13 @@ public static class PluginSettings
     }
   }
 
-  /// <summary>回调 HTTP 超时（秒）。环境变量 SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS，默认 30。</summary>
+  /// <summary>回调 HTTP 超时（秒）。环境变量 SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS，默认 1200（20 分钟）。</summary>
   public static int CallbackTimeoutSeconds
   {
     get
     {
       var value = Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS");
-      return int.TryParse(value, out var seconds) && seconds > 0 ? seconds : 30;
+      return int.TryParse(value, out var seconds) && seconds > 0 ? seconds : 1200;
     }
   }
 
