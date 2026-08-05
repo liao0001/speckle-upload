@@ -162,7 +162,7 @@ public static class SpeckleSendService
 
     var client = new Client(account);
     using var serverTransport = new ServerTransport(account, request.StreamId);
-    IReadOnlyList<ITransport> transports = new[] { serverTransport };
+    var transports = new List<ITransport> { serverTransport };
 
     string objectId;
     try

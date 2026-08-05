@@ -164,3 +164,6 @@
 
 ## 2026-08-05 15:18
 - 回调 HTTP 默认超时由 30s 改为 **20 分钟**（1200s，`SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS` 可覆盖）
+
+## 2026-08-05 15:35
+- 修复编译：`Operations.Send` 的 `transports` 参数改为 `List<ITransport>`
