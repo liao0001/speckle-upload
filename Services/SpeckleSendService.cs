@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using Autodesk.Revit.DB;
 using Objects.Converter.Revit;
 using RevitSharedResources.Interfaces;
@@ -42,7 +43,14 @@ public static class SpeckleSendService
     converter.Report.ReportObjects.Clear();
 
     PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: GetPhysicalObjects");
+    var collectWatch = Stopwatch.StartNew();
     var physicalObjects = DocumentService.GetPhysicalObjects(document);
+    collectWatch.Stop();
+    PluginLog.StepElapsed(
+      "Speckle",
+      $"SendPhysicalObjectsAsync: GetPhysicalObjects count={physicalObjects.Count}",
+      collectWatch.ElapsedMilliseconds
+    );
     if (physicalObjects.Count == 0)
     {
       PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: no physical objects, abort");
@@ -81,6 +89,7 @@ public static class SpeckleSendService
     var loggedConversionErrors = 0;
     const int maxLoggedConversionErrors = 20;
     var index = 0;
+    var convertWatch = Stopwatch.StartNew();
     foreach (var element in physicalObjects)
     {
       index++;
@@ -128,10 +137,12 @@ public static class SpeckleSendService
       }
     }
 
+    convertWatch.Stop();
     PluginLog.Step(
       "Speckle",
       $"SendPhysicalObjectsAsync: convert loop done converted={convertedCount} skippedNotSupported={skippedNotSupported} skippedNull={skippedNull} conversionErrors={conversionErrors}"
     );
+    PluginLog.StepElapsed("Speckle", "SendPhysicalObjectsAsync: convert loop total", convertWatch.ElapsedMilliseconds);
 
     if (convertedCount == 0)
     {
@@ -157,8 +168,10 @@ public static class SpeckleSendService
     {
       PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: Operations.Send begin");
       reporter?.ReportUploadStart();
+      var sendWatch = Stopwatch.StartNew();
       objectId = await Operations.Send(commitObject, transports).ConfigureAwait(true);
-      PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}");
+      sendWatch.Stop();
+      PluginLog.StepElapsed("Speckle", $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}", sendWatch.ElapsedMilliseconds);
     }
     catch (Exception ex)
     {

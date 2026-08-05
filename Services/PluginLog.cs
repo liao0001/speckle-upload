@@ -58,6 +58,11 @@ public static class PluginLog
     Write($"[{phase}] {message}");
   }
 
+  public static void StepElapsed(string phase, string message, long elapsedMs)
+  {
+    Step(phase, $"{message} elapsedMs={elapsedMs}");
+  }
+
   public static void Write(string message)
   {
     try

@@ -48,6 +48,16 @@ public static class PluginSettings
     }
   }
 
+  /// <summary>回调 HTTP 超时（秒）。环境变量 SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS，默认 30。</summary>
+  public static int CallbackTimeoutSeconds
+  {
+    get
+    {
+      var value = Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS");
+      return int.TryParse(value, out var seconds) && seconds > 0 ? seconds : 30;
+    }
+  }
+
   /// <summary>为 true 时，打开阶段内所有可识别的弹窗均尝试自动关闭。SPECKLE_UPLOAD_AUTO_DISMISS_ALL_OPEN_DIALOGS。</summary>
   public static bool AutoDismissAllOpenDialogs =>
     string.Equals(

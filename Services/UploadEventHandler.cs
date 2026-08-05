@@ -1,6 +1,7 @@
 using Autodesk.Revit.UI;
 using SpeckleUpload;
 using SpeckleUpload.Models;
+using System.Diagnostics;
 
 namespace SpeckleUpload.Services;
 
@@ -78,14 +79,22 @@ public sealed class UploadEventHandler : IExternalEventHandler
     if (_deferredCloseActive && _revitApp != null)
     {
       _deferredCloseActive = false;
-      PluginLog.Step("UploadHandler", "OnIdling: deferred CloseActiveDocument");
+      var closeWatch = Stopwatch.StartNew();
+      PluginLog.Step("UploadHandler", "OnIdling: deferred CloseActiveDocument begin");
       try
       {
         DocumentService.CloseActiveDocument(_revitApp);
+        closeWatch.Stop();
+        PluginLog.StepElapsed("UploadHandler", "OnIdling: deferred CloseActiveDocument end", closeWatch.ElapsedMilliseconds);
       }
       catch (Exception ex)
       {
-        PluginLog.Step("UploadHandler", $"OnIdling: deferred close exception {ex.Message}");
+        closeWatch.Stop();
+        PluginLog.StepElapsed(
+          "UploadHandler",
+          $"OnIdling: deferred close exception {ex.GetType().Name} {ex.Message}",
+          closeWatch.ElapsedMilliseconds
+        );
       }
     }
 
@@ -130,6 +139,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
     }
 
     var request = item.Request;
+    var executeWatch = Stopwatch.StartNew();
     PluginLog.Step("UploadHandler", $"Execute: start requestId={request.RequestId} file={request.FilePath}");
 
     UploadCallbackPayload payload;
@@ -137,15 +147,23 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
     try
     {
+      var prepareWatch = Stopwatch.StartNew();
       PluginLog.Step("UploadHandler", "Execute: step PrepareDocumentForUpload (open target then close others)");
       var document = DocumentService.PrepareDocumentForUpload(app, request.FilePath);
+      prepareWatch.Stop();
+      PluginLog.StepElapsed("UploadHandler", "Execute: PrepareDocumentForUpload done", prepareWatch.ElapsedMilliseconds);
 
       RevitOpenDialogSuppression.CompleteOpenPhase();
       reporter.ReportOpened();
+      var speckleWatch = Stopwatch.StartNew();
       PluginLog.Step("UploadHandler", "Execute: step SpeckleSend (dialog suppression must be off)");
       payload = SpeckleSendService.SendPhysicalObjects(document, request, reporter);
-
-      PluginLog.Step("UploadHandler", $"Execute: SpeckleSend OK objectId={payload.ObjectId}");
+      speckleWatch.Stop();
+      PluginLog.StepElapsed(
+        "UploadHandler",
+        $"Execute: SpeckleSend OK objectId={payload.ObjectId}",
+        speckleWatch.ElapsedMilliseconds
+      );
     }
     catch (Exception ex)
     {
@@ -165,13 +183,22 @@ public sealed class UploadEventHandler : IExternalEventHandler
     try
     {
       reporter.ApplyFinalProgress(payload);
-      PluginLog.Step("UploadHandler", "Execute: step Callback");
+      var callbackWatch = Stopwatch.StartNew();
+      PluginLog.Step("UploadHandler", $"Execute: step Callback (sync, timeout={PluginSettings.CallbackTimeoutSeconds}s)");
       CallbackService.SendAsync(payload, request.CallbackUrl).GetAwaiter().GetResult();
-      PluginLog.Step("UploadHandler", $"Execute: callback OK success={payload.Success}");
+      callbackWatch.Stop();
+      PluginLog.StepElapsed(
+        "UploadHandler",
+        $"Execute: callback OK success={payload.Success}",
+        callbackWatch.ElapsedMilliseconds
+      );
     }
     catch (Exception ex)
     {
-      PluginLog.Step("UploadHandler", $"Execute: callback failed {ex}");
+      PluginLog.Step(
+        "UploadHandler",
+        $"Execute: callback failed ex={ex.GetType().Name} msg={ex.Message}"
+      );
       payload.Success = false;
       payload.Error = string.IsNullOrWhiteSpace(payload.Error)
         ? $"Callback failed: {ex.Message}"
@@ -189,7 +216,12 @@ public sealed class UploadEventHandler : IExternalEventHandler
     );
 
     item.Completion.TrySetResult(payload);
-    PluginLog.Step("UploadHandler", $"Execute: finished requestId={request.RequestId}");
+    executeWatch.Stop();
+    PluginLog.StepElapsed(
+      "UploadHandler",
+      $"Execute: finished requestId={request.RequestId}",
+      executeWatch.ElapsedMilliseconds
+    );
   }
 
   public string GetName() => "SpeckleUpload Upload Handler";

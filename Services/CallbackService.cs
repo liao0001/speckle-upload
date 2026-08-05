@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
@@ -7,76 +8,153 @@ namespace SpeckleUpload.Services;
 
 public static class CallbackService
 {
-  private static readonly HttpClient HttpClient = new();
+  private static readonly HttpClient HttpClient = CreateHttpClient();
 
   private static readonly JsonSerializerSettings CallbackJsonSettings = new()
   {
     NullValueHandling = NullValueHandling.Include,
   };
 
+  private static HttpClient CreateHttpClient()
+  {
+    var timeoutSeconds = PluginSettings.CallbackTimeoutSeconds;
+    PluginLog.Step("Callback", $"HttpClient init timeoutSeconds={timeoutSeconds}");
+    return new HttpClient
+    {
+      Timeout = TimeSpan.FromSeconds(timeoutSeconds),
+    };
+  }
+
   public static async Task SendAsync(UploadCallbackPayload payload, string? callbackUrl = null)
   {
     var url = ResolveCallbackUrl(callbackUrl);
+    var totalWatch = Stopwatch.StartNew();
     PluginLog.Step(
       "Callback",
-      $"SendAsync: begin url={url} success={payload.Success} requestId={payload.RequestId} progress={payload.Progress ?? "-"} progress_index={payload.ProgressIndex?.ToString() ?? "-"}"
+      $"SendAsync: begin url={url} timeoutSeconds={HttpClient.Timeout.TotalSeconds} success={payload.Success} requestId={payload.RequestId} progress={payload.Progress ?? "-"} progress_index={payload.ProgressIndex?.ToString() ?? "-"} threadId={Environment.CurrentManagedThreadId}"
     );
 
     var json = JsonConvert.SerializeObject(payload, CallbackJsonSettings);
     PluginLog.Step("Callback", $"SendAsync: body length={json.Length} bytes (UTF-8, snake_case)");
 
     using var content = new StringContent(json, Encoding.UTF8, "application/json");
-    PluginLog.Step("Callback", "SendAsync: posting HTTP");
-    using var response = await HttpClient.PostAsync(url, content).ConfigureAwait(false);
-
-    var responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-    PluginLog.Step(
-      "Callback",
-      $"SendAsync: response status={(int)response.StatusCode} bodyLen={responseBody.Length}"
-    );
-
-    LwhaleResponse? rr;
+    HttpResponseMessage response;
+    var postWatch = Stopwatch.StartNew();
     try
     {
-      rr = JsonConvert.DeserializeObject<LwhaleResponse>(responseBody);
+      PluginLog.Step("Callback", "SendAsync: PostAsync start");
+      response = await HttpClient.PostAsync(url, content).ConfigureAwait(false);
+      postWatch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendAsync: PostAsync end status={(int)response.StatusCode}",
+        postWatch.ElapsedMilliseconds
+      );
     }
-    catch (Exception ex)
+    catch (TaskCanceledException ex)
     {
-      throw new InvalidOperationException(
-        $"Callback response is not valid JSON (HTTP {(int)response.StatusCode}): {ex.Message}",
+      postWatch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendAsync: PostAsync TIMEOUT or canceled (HttpClient.Timeout={HttpClient.Timeout.TotalSeconds}s) ex={ex.GetType().Name}",
+        postWatch.ElapsedMilliseconds
+      );
+      throw new TimeoutException(
+        $"Callback HTTP timeout after {postWatch.ElapsedMilliseconds}ms (limit {HttpClient.Timeout.TotalSeconds}s): {url}",
         ex
       );
     }
-
-    if (rr == null)
+    catch (HttpRequestException ex)
     {
-      throw new InvalidOperationException(
-        $"Callback response empty (HTTP {(int)response.StatusCode})"
+      postWatch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendAsync: PostAsync HTTP error ex={ex.GetType().Name} msg={ex.Message}",
+        postWatch.ElapsedMilliseconds
       );
+      throw;
     }
 
-    if (!rr.IsSuccess)
+    using (response)
     {
-      var detail = string.IsNullOrWhiteSpace(rr.Error) ? $"ret={rr.Ret}" : rr.Error;
-      throw new InvalidOperationException($"Callback rejected: {detail}");
+      var readWatch = Stopwatch.StartNew();
+      var responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+      readWatch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendAsync: response body read status={(int)response.StatusCode} bodyLen={responseBody.Length}",
+        readWatch.ElapsedMilliseconds
+      );
+
+      if (responseBody.Length > 0 && responseBody.Length <= 500)
+      {
+        PluginLog.Step("Callback", $"SendAsync: response body={responseBody}");
+      }
+      else if (responseBody.Length > 500)
+      {
+        PluginLog.Step("Callback", $"SendAsync: response body preview={responseBody[..500]}...");
+      }
+
+      LwhaleResponse? rr;
+      try
+      {
+        rr = JsonConvert.DeserializeObject<LwhaleResponse>(responseBody);
+      }
+      catch (Exception ex)
+      {
+        throw new InvalidOperationException(
+          $"Callback response is not valid JSON (HTTP {(int)response.StatusCode}): {ex.Message}",
+          ex
+        );
+      }
+
+      if (rr == null)
+      {
+        throw new InvalidOperationException(
+          $"Callback response empty (HTTP {(int)response.StatusCode})"
+        );
+      }
+
+      if (!rr.IsSuccess)
+      {
+        var detail = string.IsNullOrWhiteSpace(rr.Error) ? $"ret={rr.Ret}" : rr.Error;
+        PluginLog.Step("Callback", $"SendAsync: rejected ret={rr.Ret} error={detail}");
+        throw new InvalidOperationException($"Callback rejected: {detail}");
+      }
     }
 
-    PluginLog.Step("Callback", "SendAsync: end OK ret=0");
+    totalWatch.Stop();
+    PluginLog.StepElapsed("Callback", "SendAsync: end OK ret=0", totalWatch.ElapsedMilliseconds);
   }
 
   public static void SendFireAndForget(UploadCallbackPayload payload, string? callbackUrl = null)
   {
+    var progress = payload.Progress ?? "-";
+    PluginLog.Step(
+      "Callback",
+      $"SendFireAndForget: queued progress={progress} progress_index={payload.ProgressIndex?.ToString() ?? "-"} requestId={payload.RequestId}"
+    );
+
     _ = Task.Run(async () =>
     {
+      var watch = Stopwatch.StartNew();
       try
       {
         await SendAsync(payload, callbackUrl).ConfigureAwait(false);
+        watch.Stop();
+        PluginLog.StepElapsed(
+          "Callback",
+          $"SendFireAndForget: done progress={progress} requestId={payload.RequestId}",
+          watch.ElapsedMilliseconds
+        );
       }
       catch (Exception ex)
       {
-        PluginLog.Step(
+        watch.Stop();
+        PluginLog.StepElapsed(
           "Callback",
-          $"status report failed requestId={payload.RequestId} progress={payload.Progress}: {ex.Message}"
+          $"SendFireAndForget: failed progress={progress} requestId={payload.RequestId} ex={ex.GetType().Name} msg={ex.Message}",
+          watch.ElapsedMilliseconds
         );
       }
     });

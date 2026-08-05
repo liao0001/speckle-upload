@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using RevitSharedResources.Helpers.Extensions;
 using SpeckleUpload;
+using System.Diagnostics;
 
 namespace SpeckleUpload.Services;
 
@@ -212,12 +213,15 @@ public static class DocumentService
     }
 
     PluginLog.Step("Doc", "OpenDocument: calling OpenAndActivateDocument");
+    var openWatch = Stopwatch.StartNew();
     try
     {
       uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
     }
     finally
     {
+      openWatch.Stop();
+      PluginLog.StepElapsed("Doc", "OpenDocument: OpenAndActivateDocument returned", openWatch.ElapsedMilliseconds);
       if (PluginSettings.EnableDialogSuppression)
       {
         RevitOpenDialogSuppression.EndOpenDocument();
