@@ -213,6 +213,7 @@ public sealed class HttpUploadServer : IDisposable
     }
 
     var workItem = new UploadWorkItem(uploadRequest);
+    UploadCallbackReporter.ReportPercent(uploadRequest, "接收", UploadCallbackReporter.PercentReceived);
     PluginLog.Step("Http", "HandleUpload: TryEnqueue");
     var enqueueResult = _handler.TryEnqueue(workItem);
 
@@ -242,6 +243,7 @@ public sealed class HttpUploadServer : IDisposable
     }
 
     PluginLog.Step("Http", $"HandleUpload: enqueue {enqueueResult.Status} -> ret 0");
+    UploadCallbackReporter.ReportPercent(uploadRequest, "入队", UploadCallbackReporter.PercentEnqueued);
     await LwhaleJsonResponse.WriteSuccessAsync(response, HttpStatusCode.OK, null).ConfigureAwait(false);
   }
 

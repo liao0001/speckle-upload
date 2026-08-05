@@ -12,6 +12,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
   private ExternalEvent? _externalEvent;
   private UploadWorkItem? _pending;
   private volatile bool _deferredCloseActive;
+  private string? _deferredCloseDocumentPath;
 
   public void Initialize(UIApplication uiApp, ExternalEvent externalEvent)
   {
@@ -79,13 +80,18 @@ public sealed class UploadEventHandler : IExternalEventHandler
     if (_deferredCloseActive && _revitApp != null)
     {
       _deferredCloseActive = false;
+      var pathToClose = _deferredCloseDocumentPath;
+      _deferredCloseDocumentPath = null;
       var closeWatch = Stopwatch.StartNew();
-      PluginLog.Step("UploadHandler", "OnIdling: deferred CloseActiveDocument begin");
+      PluginLog.Step(
+        "UploadHandler",
+        $"OnIdling: deferred close uploaded document begin path=\"{pathToClose ?? "(active)"}\""
+      );
       try
       {
-        DocumentService.CloseActiveDocument(_revitApp);
+        DocumentService.CloseUploadedDocument(_revitApp, pathToClose);
         closeWatch.Stop();
-        PluginLog.StepElapsed("UploadHandler", "OnIdling: deferred CloseActiveDocument end", closeWatch.ElapsedMilliseconds);
+        PluginLog.StepElapsed("UploadHandler", "OnIdling: deferred close uploaded document end", closeWatch.ElapsedMilliseconds);
       }
       catch (Exception ex)
       {
@@ -144,6 +150,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
     UploadCallbackPayload payload;
     var reporter = new UploadCallbackReporter(request);
+    reporter.ReportExecute();
 
     try
     {
@@ -184,7 +191,10 @@ public sealed class UploadEventHandler : IExternalEventHandler
     {
       reporter.ApplyFinalProgress(payload);
       var callbackWatch = Stopwatch.StartNew();
-      PluginLog.Step("UploadHandler", $"Execute: step Callback (sync, timeout={PluginSettings.CallbackTimeoutSeconds}s)");
+      PluginLog.Step(
+        "UploadHandler",
+        $"Execute: step FinalCallback (sync is_final=true, before close document, timeout={PluginSettings.CallbackTimeoutSeconds}s)"
+      );
       CallbackService.SendAsync(payload, request.CallbackUrl).GetAwaiter().GetResult();
       callbackWatch.Stop();
       PluginLog.StepElapsed(
@@ -206,8 +216,12 @@ public sealed class UploadEventHandler : IExternalEventHandler
     }
     finally
     {
+      _deferredCloseDocumentPath = request.FilePath;
       _deferredCloseActive = true;
-      PluginLog.Step("UploadHandler", "Execute: scheduled deferred CloseActiveDocument on next Idling");
+      PluginLog.Step(
+        "UploadHandler",
+        "Execute: final callback done; scheduled async close uploaded document on next Idling"
+      );
     }
 
     PluginLog.Step(

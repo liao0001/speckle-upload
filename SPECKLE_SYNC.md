@@ -102,14 +102,67 @@ public sealed class LwhaleResponse
 
 打开文档后、解析/上传过程中、以及任务结束时，插件均 **POST 同一地址** `/api/callback`（或请求体 `callbackUrl`）。
 
-过程中为 **异步** 上报（失败不中断上传）；最终结果为 **同步** 等待响应。
+过程中为 **异步** 上报（失败不中断上传）；**最终结果为同步等待响应，且一定在关闭 RVT 之前发出**。
 
-### 3.1 进度字段（snake_case）
+插件执行顺序：
+
+```text
+打开 → 解析 → 上传(Operations.Send) → CommitCreate
+  → POST /api/callback（is_final=true，同步）  ← speckle_sync 在此判定任务完成
+  → 下一次 Idling 异步关闭 RVT（不关也不影响已完成回调）
+```
+
+### 3.1 如何判断「任务完成」（speckle_sync 必读）
+
+**仅当同时满足以下条件时，才视为任务结束，可推送远端成功/失败：**
+
+| 条件 | 进度回调 | 最终回调 |
+|------|----------|----------|
+| `is_final` | `false` | **`true`** |
+| `progress` | `打开` / `解析` / `上传` | **`完成`** |
+| `success` | 不传或 `null` | **`true` / `false`** |
+
+判定逻辑（推荐）：
+
+```text
+if body.is_final == true && body.progress == "完成":
+    # 任务完成 → 更新任务状态、推送远端（success/error）
+    if body.success == true:
+        推送成功（带 object_id、commit_id、object_count）
+    else:
+        推送失败（error 必填，转发为 errorMessage）
+else:
+    # 进行中 → 只更新 progress / progress_index，不推送最终结果
+```
+
+兼容旧插件：`is_final` 缺失时，可用 `progress == "完成"` 且 `success` 字段存在 判断为最终回调。
+
+### 3.2 进度字段（snake_case）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `progress` | string | 阶段文本：`打开` / `解析` / `上传` / `完成` |
-| `progress_index` | int | 解析阶段 = 转换循环 `index`（1、500、1000…）；上传开始 = `1`；完成 = `object_count` |
+| `is_final` | bool | **进度=false，最终=true** |
+| `progress` | string | 阶段：`接收`/`入队`/`执行`/`打开`/`准备`/`解析`/`上传`/`提交`/`完成` |
+| `progress_index` | int | **整体进度百分比 0–100**，插件已算好，speckle_sync 可直接用于进度条 |
+
+**`progress_index` 里程碑（固定值）**
+
+| 时机 | `progress` | `progress_index` |
+|------|------------|------------------|
+| 收到 POST /upload | `接收` | **1** |
+| /upload 返回 ret=0 | `入队` | **5** |
+| Revit Execute 开始 | `执行` | **6** |
+| RVT 打开完成 | `打开` | **9** |
+| 开始 Speckle 转换 | `准备` | **10** |
+| Operations.Send 完成 | `提交` | **91** |
+| 最终回调 is_final=true | `完成` | **100** |
+
+**按比例计算（40% 额度）**
+
+- **解析**（`progress=解析`）：`10 + floor(当前图元序号 / 图元总数 × 40)`，上限 **50**  
+  例：500/10000 → `10 + 2 = 12`
+- **上传**（`progress=上传`）：`50 + floor(已上传对象数 / 估算总数 × 40)`，上限 **90**  
+  估算总数 = `max(已转换图元数 × 10, 当前已上传数)`（Speckle 序列化对象数通常远大于图元数）
 
 过程中回调示例（解析中）：
 
@@ -118,19 +171,20 @@ public sealed class LwhaleResponse
   "request_id": "curl-test-001",
   "file_path": "D:\\testrvt\\test2.rvt",
   "stream_id": "1183495a7b",
-  "success": false,
+  "is_final": false,
   "progress": "解析",
-  "progress_index": 1000
+  "progress_index": 12
 }
 ```
 
-上报频率（`progress=解析`）：与日志一致，在 `1`、每 `500` 个、最后一个图元时上报。
+上报频率（`progress=解析`/`上传`）：在 `1`、每 `500` 个、阶段结束时上报（进度百分比单调递增，不会回退）。
 
-### 3.2 最终结果回调
+### 3.3 最终结果回调
 
-插件在 **Speckle 上传流程结束**（成功或失败）后再次 POST `/api/callback`，包含完整业务字段 + `progress=完成`。
+插件在 **Speckle Send + CommitCreate 成功后**（或整流程异常后）**同步** POST `/api/callback`，字段含 `is_final=true`、`progress=完成`。  
+**此请求返回后插件才在后台 Idling 关闭 RVT**，关闭失败不影响已完成状态。
 
-### 3.3 请求
+### 3.4 请求
 
 ```http
 POST /api/callback
@@ -143,12 +197,13 @@ Content-Type: application/json; charset=utf-8
 
 **无需** `Authorization` 头。
 
-### 3.4 请求体（全部 snake_case）
+### 3.5 请求体（全部 snake_case）
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `request_id` | string | 是 | 与下发任务时一致的唯一 ID |
-| `success` | bool | 是 | 整体是否成功（send + commit 均成功为 `true`） |
+| `is_final` | bool | 是 | **false=进度，true=任务完成** |
+| `success` | bool | 最终必填 | 仅 `is_final=true` 时有效 |
 | `file_path` | string | 建议 | 本地 RVT 路径 |
 | `stream_id` | string | 建议 | Speckle streamId |
 | `object_id` | string | 否 | 上传成功后的 objectId；失败可为 `null` |
@@ -157,16 +212,17 @@ Content-Type: application/json; charset=utf-8
 | `branch_name` | string | 否 | 分支名 |
 | `commit_message` | string | 否 | 提交说明（UTF-8） |
 | `error` | string | 否 | 失败时的错误信息；成功可为 `null` 或 `""` |
-| `progress` | string | 否 | `打开` / `解析` / `上传` / `完成` |
-| `progress_index` | int | 否 | 见 3.1 |
+| `progress` | string | 否 | 见 3.2 |
+| `progress_index` | int | 否 | **0–100 百分比** |
 
-### 3.5 请求示例
+### 3.6 请求示例
 
-**成功：**
+**成功（最终，推送远端用这一条）：**
 
 ```json
 {
   "request_id": "curl-test-001",
+  "is_final": true,
   "success": true,
   "file_path": "D:\\testrvt\\test2.rvt",
   "stream_id": "1183495a7b",
@@ -176,7 +232,7 @@ Content-Type: application/json; charset=utf-8
   "commit_id": "a1b2c3d4e5f6789012345678abcdef01",
   "object_count": 939,
   "progress": "完成",
-  "progress_index": 939,
+  "progress_index": 100,
   "error": null
 }
 ```
@@ -186,6 +242,7 @@ Content-Type: application/json; charset=utf-8
 ```json
 {
   "request_id": "curl-test-002",
+  "is_final": true,
   "success": false,
   "file_path": "D:\\testrvt\\missing.rvt",
   "stream_id": "1183495a7b",
@@ -198,12 +255,12 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-### 3.6 服务端行为
+### 3.7 服务端行为
 
-1. 写入 lwhale 表单 **`sync_logs`**（无论成功失败）  
-2. 若 `success == false`，向企微机器人发送告警（Webhook 在服务端配置）  
+1. **`is_final=false`**：只更新 `sync_logs` 的 `progress` / `progress_index`，**不要**改任务为失败，**不要**调 Speckle rvt result  
+2. **`is_final=true`**：写入完整 `sync_logs`，按 `success` 更新任务并**推送远端**；失败时 `error` 非空  
 
-### 3.7 响应示例
+### 3.8 响应示例
 
 **成功：**
 
@@ -244,7 +301,7 @@ curl -sS -X POST "http://127.0.0.1:6689/api/callback" \
     "commit_id": "a1b2c3d4e5f6789012345678abcdef01",
     "object_count": 939,
     "progress": "完成",
-    "progress_index": 939,
+    "progress_index": 100,
     "error": null
   }'
 ```

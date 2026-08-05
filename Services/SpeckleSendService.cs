@@ -59,6 +59,7 @@ public static class SpeckleSendService
     }
 
     PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: physical count={physicalObjects.Count}");
+    reporter?.ReportSpeckleStart();
     reporter?.BeginConvert(physicalObjects.Count);
 
     if (converter is not IRevitCommitObjectBuilderExposer builderExposer)
@@ -144,6 +145,7 @@ public static class SpeckleSendService
       $"SendPhysicalObjectsAsync: convert loop done converted={convertedCount} skippedNotSupported={skippedNotSupported} skippedNull={skippedNull} conversionErrors={conversionErrors}"
     );
     PluginLog.StepElapsed("Speckle", "SendPhysicalObjectsAsync: convert loop total", convertWatch.ElapsedMilliseconds);
+    reporter?.ReportConvertComplete();
 
     if (convertedCount == 0)
     {
@@ -171,6 +173,7 @@ public static class SpeckleSendService
         "Speckle",
         $"SendPhysicalObjectsAsync: Operations.Send begin (upload to {serverUrl}, converted={convertedCount})"
       );
+      reporter?.BeginUpload(convertedCount);
       reporter?.ReportUploadStart();
 
       var lastUploadReport = 0;
@@ -212,6 +215,8 @@ public static class SpeckleSendService
         $"SendPhysicalObjectsAsync: Operations.Send end objectId={objectId}",
         sendWatch.ElapsedMilliseconds
       );
+      reporter?.FinishUpload(lastUploadReport);
+      reporter?.ReportUploadComplete();
     }
     catch (Exception ex)
     {

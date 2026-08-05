@@ -242,28 +242,76 @@ public static class DocumentService
 
   public static void CloseActiveDocument(UIApplication uiApp)
   {
-    PluginLog.Step("Doc", "CloseActiveDocument: begin");
-    var activeDoc = uiApp.ActiveUIDocument?.Document;
-    if (activeDoc == null)
+    CloseUploadedDocument(uiApp, uiApp.ActiveUIDocument?.Document?.PathName);
+  }
+
+  /// <summary>
+  /// 最终回调完成后异步关闭上传用的 RVT：先打开空白项目切换活动文档，再关闭目标文件。
+  /// </summary>
+  public static void CloseUploadedDocument(UIApplication uiApp, string? uploadedFilePath)
+  {
+    PluginLog.Step("Doc", $"CloseUploadedDocument: begin path=\"{uploadedFilePath ?? "(active)"}\"");
+
+    var target = FindOpenDocumentByPath(uiApp, uploadedFilePath) ?? uiApp.ActiveUIDocument?.Document;
+    if (target == null)
     {
-      PluginLog.Step("Doc", "CloseActiveDocument: no active document, skip");
+      PluginLog.Step("Doc", "CloseUploadedDocument: target not found, skip");
       return;
     }
 
-    if (activeDoc.IsLinked)
+    if (target.IsLinked)
     {
-      PluginLog.Step("Doc", "CloseActiveDocument: active is linked, skip");
+      PluginLog.Step("Doc", "CloseUploadedDocument: target is linked, skip");
       return;
     }
 
-    var label = SafeDocumentLabel(activeDoc);
-    PluginLog.Step("Doc", $"CloseActiveDocument: closing {label}");
-    if (!TryCloseDocument(activeDoc, label))
+    var targetLabel = SafeDocumentLabel(target);
+    Document? blankDocument = null;
+
+    if (IsSameDocument(uiApp.ActiveUIDocument?.Document, target))
     {
-      PluginLog.Step("Doc", "CloseActiveDocument: TryCloseDocument returned false (e.g. still active in this API context)");
+      PluginLog.Step("Doc", "CloseUploadedDocument: target is active, opening blank project to switch away");
+      try
+      {
+        var unitSystem = target.DisplayUnitSystem == DisplayUnit.IMPERIAL
+          ? UnitSystem.Imperial
+          : UnitSystem.Metric;
+        blankDocument = uiApp.Application.NewProjectDocument(unitSystem);
+        PluginLog.Step("Doc", $"CloseUploadedDocument: blank project opened title=\"{blankDocument.Title}\"");
+      }
+      catch (Exception ex)
+      {
+        PluginLog.Step("Doc", $"CloseUploadedDocument: NewProjectDocument failed: {ex.GetType().Name} {ex.Message}");
+        return;
+      }
     }
 
-    PluginLog.Step("Doc", "CloseActiveDocument: end");
+    if (!TryCloseDocument(target, targetLabel))
+    {
+      PluginLog.Step("Doc", "CloseUploadedDocument: failed to close uploaded document");
+    }
+
+    if (blankDocument != null)
+    {
+      var blankLabel = SafeDocumentLabel(blankDocument);
+      PluginLog.Step("Doc", $"CloseUploadedDocument: closing temporary blank document {blankLabel}");
+      TryCloseDocument(blankDocument, blankLabel);
+    }
+
+    PluginLog.Step("Doc", "CloseUploadedDocument: end");
+  }
+
+  private static Document? FindOpenDocumentByPath(UIApplication uiApp, string? filePath)
+  {
+    var normalized = NormalizePath(filePath);
+    if (string.IsNullOrWhiteSpace(normalized))
+    {
+      return null;
+    }
+
+    return uiApp
+      .Application.Documents.Cast<Document>()
+      .FirstOrDefault(document => !document.IsLinked && PathsEqual(NormalizePath(document.PathName), normalized));
   }
 
   public static List<Element> GetPhysicalObjects(Document document)

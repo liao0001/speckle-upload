@@ -170,3 +170,12 @@
 
 ## 2026-08-05 16:25
 - 进度 callback 不再发 `success=false`；新增 `is_final`（进度=false，最终=true），避免 speckle_sync 误判失败
+
+## 2026-08-05 18:36
+- 最终 callback（`is_final=true`）在关文档**之前**同步发出；关文档改为 Idling 异步 `CloseUploadedDocument`
+- `SPECKLE_SYNC.md` 补充 3.1 完成判定（`is_final` + `progress=完成`）及 speckle_sync 推送远端时机
+- 删除 `DocumentService.CloseActiveDocumentLegacy` 重复方法
+
+## 2026-08-05 19:03
+- `progress_index` 改为 **0–100 整体百分比**：固定里程碑 1/5/6/9/10/91/100；解析 10–50、上传 50–90 按比例计算
+- HTTP 层增加 `接收`(1)、`入队`(5) 进度回调；Execute 开始上报 `执行`(6)
