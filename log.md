@@ -154,3 +154,6 @@
 ## 2026-08-05 14:45
 - 回调 HTTP 默认超时 30s（`SPECKLE_UPLOAD_CALLBACK_TIMEOUT_SECONDS`）；原 HttpClient 默认 100s 会在 Revit 主线程同步等待导致“卡住”
 - 增强耗时日志：`elapsedMs` 覆盖打开/解析/上传/callback/关文档；Callback 记录 PostAsync 超时与响应体
+
+## 2026-08-05 14:49
+- 修复 net48 编译：`CallbackService` 响应体预览改用 `Substring`，避免 `System.Index`/`System.Range` 语法

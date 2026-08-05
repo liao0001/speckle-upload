@@ -92,7 +92,7 @@ public static class CallbackService
       }
       else if (responseBody.Length > 500)
       {
-        PluginLog.Step("Callback", $"SendAsync: response body preview={responseBody[..500]}...");
+        PluginLog.Step("Callback", $"SendAsync: response body preview={responseBody.Substring(0, 500)}...");
       }
 
       LwhaleResponse? rr;
