@@ -22,10 +22,12 @@ public sealed class UploadCallbackReporter
 
   private readonly UploadRequest _request;
   private readonly string _callbackUrl;
+  private readonly int _heartbeatSeconds;
   private int _convertTotal;
   private int _uploadDenominator;
   private int _lastUploadReport;
   private int _lastReportedPercent;
+  private DateTime _lastProgressReportUtc = DateTime.MinValue;
 
   public UploadCallbackReporter(UploadRequest request)
   {
@@ -33,7 +35,11 @@ public sealed class UploadCallbackReporter
     _callbackUrl = string.IsNullOrWhiteSpace(request.CallbackUrl)
       ? PluginSettings.CallbackUrl
       : request.CallbackUrl.Trim();
-    PluginLog.Step("Callback", $"status reporter enabled url={_callbackUrl} requestId={request.RequestId}");
+    _heartbeatSeconds = PluginSettings.ProgressHeartbeatSeconds;
+    PluginLog.Step(
+      "Callback",
+      $"status reporter enabled url={_callbackUrl} requestId={request.RequestId} heartbeatSeconds={_heartbeatSeconds}"
+    );
   }
 
   public static void ReportPercent(UploadRequest request, string progress, int percent)
@@ -61,12 +67,22 @@ public sealed class UploadCallbackReporter
 
   public void ReportConvert(int index)
   {
-    if (!ShouldReportConvert(index, _convertTotal))
+    var byCount = ShouldReportConvert(index, _convertTotal);
+    var byHeartbeat = IsHeartbeatDue();
+    if (!byCount && !byHeartbeat)
     {
       return;
     }
 
     var percent = ComputeConvertPercent(index, _convertTotal);
+    if (byHeartbeat && !byCount)
+    {
+      PluginLog.Step(
+        "Speckle",
+        $"convert heartbeat {index}/{_convertTotal} progress_index={percent} (every {_heartbeatSeconds}s)"
+      );
+    }
+
     Report("解析", percent);
   }
 
@@ -90,13 +106,23 @@ public sealed class UploadCallbackReporter
   {
     _uploadDenominator = Math.Max(_uploadDenominator, Math.Max(uploaded, 1));
 
-    if (uploaded > 1 && uploaded - _lastUploadReport < 500)
+    var byCount = uploaded <= 1 || uploaded - _lastUploadReport >= 500;
+    var byHeartbeat = IsHeartbeatDue();
+    if (!byCount && !byHeartbeat)
     {
       return;
     }
 
     _lastUploadReport = uploaded;
     var percent = ComputeUploadPercent(uploaded, _uploadDenominator);
+    if (byHeartbeat && !byCount)
+    {
+      PluginLog.Step(
+        "Speckle",
+        $"upload heartbeat uploadedTotal={uploaded} progress_index={percent} (every {_heartbeatSeconds}s)"
+      );
+    }
+
     Report("上传", percent);
   }
 
@@ -135,7 +161,23 @@ public sealed class UploadCallbackReporter
       _lastReportedPercent = percent;
     }
 
+    _lastProgressReportUtc = DateTime.UtcNow;
     SendPercent(_request, _callbackUrl, progress, percent);
+  }
+
+  private bool IsHeartbeatDue()
+  {
+    if (_heartbeatSeconds <= 0)
+    {
+      return false;
+    }
+
+    if (_lastProgressReportUtc == DateTime.MinValue)
+    {
+      return false;
+    }
+
+    return (DateTime.UtcNow - _lastProgressReportUtc).TotalSeconds >= _heartbeatSeconds;
   }
 
   private static void SendPercent(UploadRequest request, string callbackUrl, string progress, int percent)

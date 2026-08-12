@@ -177,6 +177,8 @@ public static class SpeckleSendService
       reporter?.ReportUploadStart();
 
       var lastUploadReport = 0;
+      var lastUploadLogUtc = DateTime.MinValue;
+      var heartbeatSeconds = PluginSettings.ProgressHeartbeatSeconds;
       Action<ConcurrentDictionary<string, int>> onProgress = dict =>
       {
         var uploaded = 0;
@@ -185,16 +187,22 @@ public static class SpeckleSendService
           uploaded += pair.Value;
         }
 
-        PluginLog.Step(
-          "Speckle",
-          $"Operations.Send onProgress {FormatProgressDict(dict)} uploadedTotal={uploaded}"
-        );
-
-        if (uploaded <= 1 || uploaded - lastUploadReport >= 500)
+        var byCount = uploaded <= 1 || uploaded - lastUploadReport >= 500;
+        var byHeartbeat =
+          heartbeatSeconds > 0
+          && lastUploadLogUtc != DateTime.MinValue
+          && (DateTime.UtcNow - lastUploadLogUtc).TotalSeconds >= heartbeatSeconds;
+        if (byCount || byHeartbeat || lastUploadLogUtc == DateTime.MinValue)
         {
           lastUploadReport = uploaded;
-          reporter?.ReportUpload(uploaded);
+          lastUploadLogUtc = DateTime.UtcNow;
+          PluginLog.Step(
+            "Speckle",
+            $"Operations.Send onProgress {FormatProgressDict(dict)} uploadedTotal={uploaded}"
+          );
         }
+
+        reporter?.ReportUpload(uploaded);
       };
 
       var sendWatch = Stopwatch.StartNew();
