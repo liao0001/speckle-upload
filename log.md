@@ -183,3 +183,11 @@
 ## 2026-08-12 14:39
 - 进度上报增加时间心跳（方式 D）：默认每 **30 秒**强制 callback（解析/上传），环境变量 `SPECKLE_UPLOAD_PROGRESS_HEARTBEAT_SECONDS`
 - `Operations.Send` 本地 onProgress 日志同步改为每 500 或每 30 秒，避免刷屏
+
+## 2026-08-21 17:13
+- 新增 `docs/NavisWorks插件实现指南.md`：按本仓库 Revit 插件对照写出 NavisWorks 版逐步实现说明（HTTP/进度/Speckle 契约复用，Idle 调度与 OpenFile 替换文档，完成后不关文件）
+
+## 2026-08-27 15:08
+- 提交树改为对齐官方 Speckle Next：`Level → Category → Type`（`LevelCategoryCommitBuilder`）
+- 取消宿主嵌套（结构柱不再挂到依附楼板下）；Category 使用本地化 `Category.Name`（如「结构柱」）
+- `SpeckleSendService` 根对象改为 `ConvertToSpeckle(document)`（含 ProjectInfo），不再用默认 `ByCollection` + Host 嵌套

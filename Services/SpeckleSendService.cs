@@ -3,7 +3,6 @@ using System.Text;
 using System.Diagnostics;
 using Autodesk.Revit.DB;
 using Objects.Converter.Revit;
-using RevitSharedResources.Interfaces;
 using RevitSharedResources.Models;
 using Speckle.Core.Api;
 using Speckle.Core.Api.GraphQL.Models;
@@ -62,14 +61,12 @@ public static class SpeckleSendService
     reporter?.ReportSpeckleStart();
     reporter?.BeginConvert(physicalObjects.Count);
 
-    if (converter is not IRevitCommitObjectBuilderExposer builderExposer)
-    {
-      PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: converter has no IRevitCommitObjectBuilderExposer");
-      throw new InvalidOperationException("ConverterRevit does not expose commit object builder.");
-    }
-
-    var commitBuilder = builderExposer.commitObjectBuilder;
-    var commitObject = new Collection();
+    // 根对象带 ProjectInfo；提交树按 Level → Category → Type，不挂 Host
+    var commitObject =
+      converter.ConvertToSpeckle(document) as Collection
+      ?? new Collection("Revit model", "model");
+    commitObject.elements ??= new List<Base>();
+    var commitBuilder = new LevelCategoryCommitBuilder(document);
 
     PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: SetContextObjects from physical list");
     converter.SetContextObjects(
@@ -122,7 +119,7 @@ public static class SpeckleSendService
           conversionResult.applicationId = element.UniqueId;
         }
 
-        commitBuilder.IncludeObject(conversionResult, element);
+        commitBuilder.IncludeObject(conversionResult, element, commitObject);
         convertedCount++;
       }
       catch (Exception ex)
@@ -153,8 +150,10 @@ public static class SpeckleSendService
       throw new InvalidOperationException("Zero physical objects converted successfully.");
     }
 
-    PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: BuildCommitObject");
-    commitBuilder.BuildCommitObject(commitObject);
+    PluginLog.Step(
+      "Speckle",
+      $"SendPhysicalObjectsAsync: commit tree ready (Level→Category→Type) converted={convertedCount}"
+    );
 
     var serverUrl = request.ServerUrl.TrimEnd('/');
     PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: serverUrl={serverUrl} streamId={request.StreamId}");
