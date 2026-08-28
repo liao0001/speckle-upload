@@ -89,12 +89,26 @@ public static class SpeckleSendService
     const int maxLoggedConversionErrors = 20;
     var index = 0;
     var convertWatch = Stopwatch.StartNew();
+    string? currentElementLabel = null;
+    var lastUiYieldUtc = DateTime.MinValue;
+    using var convertHeartbeat = StartConvertHeartbeat(
+      convertWatch,
+      () => index,
+      physicalObjects.Count,
+      () => currentElementLabel,
+      reporter
+    );
     foreach (var element in physicalObjects)
     {
       index++;
+      currentElementLabel = FormatElementLabel(element);
+      YieldToUiThread(ref lastUiYieldUtc);
       if (index == 1 || index == physicalObjects.Count || index % 500 == 0)
       {
-        PluginLog.Step("Speckle", $"SendPhysicalObjectsAsync: convert loop progress {index}/{physicalObjects.Count}");
+        PluginLog.Step(
+          "Speckle",
+          $"SendPhysicalObjectsAsync: convert loop progress {index}/{physicalObjects.Count} {currentElementLabel}"
+        );
       }
 
       reporter?.ReportConvert(index);
@@ -107,7 +121,18 @@ public static class SpeckleSendService
 
       try
       {
+        var elementWatch = Stopwatch.StartNew();
         var conversionResult = converter.ConvertToSpeckle(element);
+        elementWatch.Stop();
+        if (elementWatch.ElapsedMilliseconds >= 3000)
+        {
+          PluginLog.StepElapsed(
+            "Speckle",
+            $"slow convert {index}/{physicalObjects.Count} {currentElementLabel}",
+            elementWatch.ElapsedMilliseconds
+          );
+        }
+
         if (conversionResult == null)
         {
           skippedNull++;
@@ -130,11 +155,13 @@ public static class SpeckleSendService
           loggedConversionErrors++;
           PluginLog.Step(
             "Speckle",
-            $"Convert element failed id={element.Id} type={element.GetType().Name}: {ex.Message}"
+            $"Convert element failed {currentElementLabel}: {ex.Message}"
           );
         }
       }
     }
+
+    currentElementLabel = null;
 
     convertWatch.Stop();
     PluginLog.Step(
@@ -336,6 +363,92 @@ public static class SpeckleSendService
     );
 
     return cts;
+  }
+
+  /// <summary>
+  /// 转换循环卡在某个 ConvertToSpeckle 时，原进度回调不会触发；用后台心跳打出当前构件。
+  /// </summary>
+  /// <summary>
+  /// 转换在 ExternalEvent/UI 线程同步执行时，定期泵消息，避免 Revit 长时间显示「无响应」。
+  /// 对齐官方 Connector 的 YieldToUIThread（约每 150ms）。
+  /// </summary>
+  private static void YieldToUiThread(ref DateTime lastYieldUtc)
+  {
+    var now = DateTime.UtcNow;
+    if (lastYieldUtc != DateTime.MinValue && (now - lastYieldUtc).TotalMilliseconds < 150)
+    {
+      return;
+    }
+
+    lastYieldUtc = now;
+    try
+    {
+      System.Windows.Forms.Application.DoEvents();
+    }
+    catch
+    {
+      // 忽略泵消息失败，不影响转换
+    }
+  }
+
+  private static IDisposable StartConvertHeartbeat(
+    Stopwatch convertWatch,
+    Func<int> getIndex,
+    int total,
+    Func<string?> getCurrentElementLabel,
+    UploadCallbackReporter? reporter
+  )
+  {
+    var cts = new CancellationTokenSource();
+    var intervalSeconds = Math.Max(15, PluginSettings.ProgressHeartbeatSeconds);
+    _ = Task.Run(
+      async () =>
+      {
+        try
+        {
+          while (!cts.Token.IsCancellationRequested)
+          {
+            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cts.Token).ConfigureAwait(false);
+            var index = getIndex();
+            var label = getCurrentElementLabel() ?? "(between elements)";
+            PluginLog.StepElapsed(
+              "Speckle",
+              $"convert still running {index}/{total} {label}",
+              convertWatch.ElapsedMilliseconds
+            );
+            // 心跳强制刷新进度（即使仍停在同一个 index）
+            reporter?.ReportConvert(Math.Max(1, index));
+          }
+        }
+        catch (OperationCanceledException)
+        {
+          // expected when convert loop completes
+        }
+      },
+      cts.Token
+    );
+
+    return cts;
+  }
+
+  private static string FormatElementLabel(Element element)
+  {
+    try
+    {
+      var id =
+#if REVIT2024
+        element.Id.Value.ToString();
+#else
+        element.Id.IntegerValue.ToString();
+#endif
+      var category = element.Category?.Name ?? "(no category)";
+      var name = string.IsNullOrWhiteSpace(element.Name) ? "(no name)" : element.Name;
+      return $"id={id} category=\"{category}\" name=\"{name}\" type={element.GetType().Name}";
+    }
+    catch (Exception ex)
+    {
+      return $"(element label failed: {ex.GetType().Name})";
+    }
   }
 
   private static string FormatProgressDict(ConcurrentDictionary<string, int> dict)

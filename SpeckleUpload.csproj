@@ -8,6 +8,7 @@
     <AssemblyName>SpeckleUpload</AssemblyName>
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <UseWindowsForms>true</UseWindowsForms>
     <BaseOutputPath>bin\$(RevitVersion)\</BaseOutputPath>
     <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
   </PropertyGroup>

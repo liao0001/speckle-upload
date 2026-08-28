@@ -191,3 +191,10 @@
 - 提交树改为对齐官方 Speckle Next：`Level → Category → Type`（`LevelCategoryCommitBuilder`）
 - 取消宿主嵌套（结构柱不再挂到依附楼板下）；Category 使用本地化 `Category.Name`（如「结构柱」）
 - `SpeckleSendService` 根对象改为 `ConvertToSpeckle(document)`（含 ProjectInfo），不再用默认 `ByCollection` + Host 嵌套
+
+## 2026-08-27 22:33
+- 诊断转换“卡住”：循环内 `ConvertToSpeckle` 阻塞时原进度心跳不会触发
+- `SpeckleSendService` 增加转换后台心跳（约 15–30s）输出当前 `index`/构件 id/category/name；单构件 ≥3s 记 slow convert
+
+## 2026-08-27 22:36
+- 转换循环增加 `Application.DoEvents` 节流让出（约每 150ms），减轻 Revit 任务管理器「无响应」；`UseWindowsForms=true`
