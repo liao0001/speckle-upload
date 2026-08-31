@@ -85,23 +85,26 @@ public static class SpeckleSendService
     var skippedNotSupported = 0;
     var skippedNull = 0;
     var conversionErrors = 0;
+    var skippedConnectorInaccessible = 0;
     var loggedConversionErrors = 0;
     const int maxLoggedConversionErrors = 20;
     var index = 0;
     var convertWatch = Stopwatch.StartNew();
     string? currentElementLabel = null;
     var lastUiYieldUtc = DateTime.MinValue;
+    var heartbeatState = new ConvertHeartbeatState();
     using var convertHeartbeat = StartConvertHeartbeat(
       convertWatch,
-      () => index,
+      heartbeatState,
       physicalObjects.Count,
-      () => currentElementLabel,
       reporter
     );
     foreach (var element in physicalObjects)
     {
       index++;
       currentElementLabel = FormatElementLabel(element);
+      heartbeatState.Index = index;
+      heartbeatState.Label = currentElementLabel;
       YieldToUiThread(ref lastUiYieldUtc);
       if (index == 1 || index == physicalObjects.Count || index % 500 == 0)
       {
@@ -119,8 +122,27 @@ public static class SpeckleSendService
         continue;
       }
 
+      if (element is FamilyInstance familyInstance && HasInaccessibleConnectorModifier(familyInstance))
+      {
+        skippedConnectorInaccessible++;
+        if (loggedConversionErrors < maxLoggedConversionErrors)
+        {
+          loggedConversionErrors++;
+          PluginLog.Step(
+            "Speckle",
+            $"Skip convert (connector modifier inaccessible) {currentElementLabel}"
+          );
+        }
+
+        continue;
+      }
+
       try
       {
+        PluginLog.Step(
+          "Speckle",
+          $"convert begin {index}/{physicalObjects.Count} {currentElementLabel}"
+        );
         var elementWatch = Stopwatch.StartNew();
         var conversionResult = converter.ConvertToSpeckle(element);
         elementWatch.Stop();
@@ -166,7 +188,7 @@ public static class SpeckleSendService
     convertWatch.Stop();
     PluginLog.Step(
       "Speckle",
-      $"SendPhysicalObjectsAsync: convert loop done converted={convertedCount} skippedNotSupported={skippedNotSupported} skippedNull={skippedNull} conversionErrors={conversionErrors}"
+      $"SendPhysicalObjectsAsync: convert loop done converted={convertedCount} skippedNotSupported={skippedNotSupported} skippedConnectorInaccessible={skippedConnectorInaccessible} skippedNull={skippedNull} conversionErrors={conversionErrors}"
     );
     PluginLog.StepElapsed("Speckle", "SendPhysicalObjectsAsync: convert loop total", convertWatch.ElapsedMilliseconds);
     reporter?.ReportConvertComplete();
@@ -393,9 +415,8 @@ public static class SpeckleSendService
 
   private static IDisposable StartConvertHeartbeat(
     Stopwatch convertWatch,
-    Func<int> getIndex,
+    ConvertHeartbeatState heartbeatState,
     int total,
-    Func<string?> getCurrentElementLabel,
     UploadCallbackReporter? reporter
   )
   {
@@ -409,11 +430,11 @@ public static class SpeckleSendService
           while (!cts.Token.IsCancellationRequested)
           {
             await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cts.Token).ConfigureAwait(false);
-            var index = getIndex();
-            var label = getCurrentElementLabel() ?? "(between elements)";
+            var index = heartbeatState.Index;
+            var label = heartbeatState.Label ?? "(between elements)";
             PluginLog.StepElapsed(
               "Speckle",
-              $"convert still running {index}/{total} {label}",
+              $"convert heartbeat {index}/{total} {label}",
               convertWatch.ElapsedMilliseconds
             );
             // 心跳强制刷新进度（即使仍停在同一个 index）
@@ -429,6 +450,59 @@ public static class SpeckleSendService
     );
 
     return cts;
+  }
+
+  /// <summary>
+  /// 供后台心跳读取；只存 UI 线程写入的字符串，避免跨线程访问 Revit Element。
+  /// </summary>
+  private sealed class ConvertHeartbeatState
+  {
+    public volatile int Index;
+    public volatile string? Label;
+  }
+
+  /// <summary>
+  /// Speckle 转换 MEP 族时可能抛错；部分族会在 Revit API 内部挂死，提前跳过。
+  /// </summary>
+  private static bool HasInaccessibleConnectorModifier(FamilyInstance instance)
+  {
+    var mepModel = instance.MEPModel;
+    if (mepModel?.ConnectorManager == null)
+    {
+      return false;
+    }
+
+    try
+    {
+      foreach (Connector connector in mepModel.ConnectorManager.Connectors)
+      {
+        _ = connector.ConnectorType;
+        _ = connector.Domain;
+      }
+    }
+    catch (Exception ex) when (IsConnectorModifierInaccessible(ex))
+    {
+      return true;
+    }
+    catch
+    {
+      // 其它异常留给 ConvertToSpeckle 处理
+    }
+
+    return false;
+  }
+
+  private static bool IsConnectorModifierInaccessible(Exception ex)
+  {
+    for (var current = ex; current != null; current = current.InnerException)
+    {
+      if (current.Message.Contains("connector modifier is inaccessible", StringComparison.OrdinalIgnoreCase))
+      {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private static string FormatElementLabel(Element element)

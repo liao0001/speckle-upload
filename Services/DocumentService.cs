@@ -65,6 +65,74 @@ public static class DocumentService
     return opened;
   }
 
+  /// <summary>
+  /// 打开 API 返回后、Speckle 转换前：等待 Win32 收尾、泵 UI、Regenerate，确保模型就绪。
+  /// </summary>
+  public static void EnsureDocumentReadyForConversion(UIApplication uiApp, Document document)
+  {
+    PluginLog.Step("Doc", "EnsureDocumentReadyForConversion: begin");
+
+    Win32DialogClicker.WaitForOpenPhaseComplete();
+
+    var settleSeconds = PluginSettings.PostOpenSettleSeconds;
+    if (settleSeconds > 0)
+    {
+      var settleWatch = Stopwatch.StartNew();
+      var deadline = DateTime.UtcNow.AddSeconds(settleSeconds);
+      while (DateTime.UtcNow < deadline)
+      {
+        try
+        {
+          System.Windows.Forms.Application.DoEvents();
+        }
+        catch
+        {
+          // ignore
+        }
+
+        Thread.Sleep(50);
+      }
+
+      settleWatch.Stop();
+      PluginLog.StepElapsed(
+        "Doc",
+        $"EnsureDocumentReadyForConversion: UI settle {settleSeconds}s",
+        settleWatch.ElapsedMilliseconds
+      );
+    }
+
+    try
+    {
+      var regenWatch = Stopwatch.StartNew();
+      using (var transaction = new Transaction(document, "SpeckleUpload pre-convert regenerate"))
+      {
+        if (transaction.Start() == TransactionStatus.Started)
+        {
+          document.Regenerate();
+          transaction.Commit();
+          regenWatch.Stop();
+          PluginLog.StepElapsed("Doc", "EnsureDocumentReadyForConversion: Regenerate done", regenWatch.ElapsedMilliseconds);
+        }
+        else
+        {
+          PluginLog.Step("Doc", "EnsureDocumentReadyForConversion: Regenerate transaction not started, skip");
+        }
+      }
+    }
+    catch (Exception ex)
+    {
+      PluginLog.Step(
+        "Doc",
+        $"EnsureDocumentReadyForConversion: Regenerate failed {ex.GetType().Name} {ex.Message} (continue convert)"
+      );
+    }
+
+    PluginLog.Step(
+      "Doc",
+      $"EnsureDocumentReadyForConversion: end title=\"{document.Title}\" isModifiable={document.IsModifiable}"
+    );
+  }
+
   public static bool TryCloseDocument(Document document, string? label = null)
   {
     var docLabel = label ?? SafeDocumentLabel(document);

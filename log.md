@@ -198,3 +198,23 @@
 
 ## 2026-08-27 22:36
 - 转换循环增加 `Application.DoEvents` 节流让出（约每 150ms），减轻 Revit 任务管理器「无响应」；`UseWindowsForms=true`
+
+## 2026-08-29 19:29
+- 新增 `docs/官方Revit插件改造实现指南.md`：以 Speckle 官方 Revit Connector 为唯一上传真源，说明如何接入 HTTP、自动打开/关闭文档、Physical Objects、弹窗处理、进度回调和日志等现有功能
+- 明确官方兼容模式与 `Level → Category → Type` 自定义模式的边界，避免将自定义提交树误认为与官方上传结果一致
+- 补充官方版本固定、依赖一致性、SendStream/Converter context、构建安装、内容对比和真实 Revit 验收要求
+
+## 2026-09-01 06:46
+- 诊断 Revit 在 `ConvertToSpeckle` 内硬阻塞导致进度停在解析阶段：`connector modifier is inaccessible` 为可跳过异常，与 UI 无响应不是同一问题
+- `SpeckleSendService`：每次 `ConvertToSpeckle` 前写 `convert begin` 日志，便于定位卡死图元；心跳改为 `ConvertHeartbeatState` 只读 UI 线程写入的 index/label
+- 新增 MEP 族 `HasInaccessibleConnectorModifier` 预检，提前跳过 connector modifier 不可访问的 FamilyInstance，减少 Revit 无响应风险
+
+## 2026-09-01 06:47
+- 打开与 Speckle 转换解耦：`OpenAndActivateDocument` 返回后默认再等 3 次 Revit Idling 才开始转换（`SPECKLE_UPLOAD_POST_OPEN_IDLE_TICKS`），避免 Revit 仍在加载/重生成时进入 `ConvertToSpeckle`
+- 新增 `DocumentService.EnsureDocumentReadyForConversion`：同步等待 Win32 打开收尾、UI settle（默认 2s）、`Regenerate` 后再转换
+- `Win32DialogClicker.WaitForOpenPhaseComplete`：打开阶段 Win32 代点改为可等待完成，避免与转换并行
+
+## 2026-09-01 06:50
+- 打开后等待策略改为代码内默认值（`DefaultPostOpenIdleTicks=3`、`DefaultPostOpenSettleSeconds=2`），部署无需配置环境变量
+- 旧行为可选：`SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN=1` 时打开后立即转换，跳过 Idling/settle/Regenerate
+- 启动日志输出 `DescribePostOpenConvertPolicy()`；`说明.md` 补充默认行为说明

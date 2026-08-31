@@ -10,6 +10,12 @@ public static class PluginSettings
 
   public const string DefaultCallbackUrl = "http://127.0.0.1:6689/api/callback";
 
+  /// <summary>打开 RVT 后默认再等待的 Revit Idling 次数，然后才开始 Speckle 转换。</summary>
+  public const int DefaultPostOpenIdleTicks = 3;
+
+  /// <summary>Idling 等待结束后、转换前默认再泵 UI 的秒数。</summary>
+  public const int DefaultPostOpenSettleSeconds = 2;
+
   public static int HttpPort
   {
     get
@@ -83,4 +89,69 @@ public static class PluginSettings
       "true",
       StringComparison.OrdinalIgnoreCase
     );
+
+  /// <summary>
+  /// 旧行为：打开后立即 Speckle 转换，不等待 Idling / settle / Regenerate。
+  /// 仅当需要兼容旧版时设置 SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN=1。
+  /// </summary>
+  public static bool ImmediateConvertAfterOpen =>
+    string.Equals(
+      Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN"),
+      "1",
+      StringComparison.OrdinalIgnoreCase
+    )
+    || string.Equals(
+      Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN"),
+      "true",
+      StringComparison.OrdinalIgnoreCase
+    );
+
+  /// <summary>
+  /// OpenAndActivateDocument 返回后，再等待多少次 Revit Idling 才开始 Speckle 转换。
+  /// 默认 <see cref="DefaultPostOpenIdleTicks"/>（无需配置环境变量）。
+  /// 可选 SPECKLE_UPLOAD_POST_OPEN_IDLE_TICKS 覆盖；设为 0 则跳过 Idling 等待（仍会 Regenerate）。
+  /// </summary>
+  public static int PostOpenIdleTicks
+  {
+    get
+    {
+      if (ImmediateConvertAfterOpen)
+      {
+        return 0;
+      }
+
+      var value = Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_POST_OPEN_IDLE_TICKS");
+      return int.TryParse(value, out var ticks) && ticks >= 0 ? ticks : DefaultPostOpenIdleTicks;
+    }
+  }
+
+  /// <summary>
+  /// Idling 等待结束后，转换前额外泵 UI 的秒数（让 Revit 完成重生成/刷新）。
+  /// 默认 <see cref="DefaultPostOpenSettleSeconds"/>（无需配置环境变量）。
+  /// 可选 SPECKLE_UPLOAD_POST_OPEN_SETTLE_SECONDS 覆盖；设为 0 跳过。
+  /// </summary>
+  public static int PostOpenSettleSeconds
+  {
+    get
+    {
+      if (ImmediateConvertAfterOpen)
+      {
+        return 0;
+      }
+
+      var value = Environment.GetEnvironmentVariable("SPECKLE_UPLOAD_POST_OPEN_SETTLE_SECONDS");
+      return int.TryParse(value, out var seconds) && seconds >= 0 ? seconds : DefaultPostOpenSettleSeconds;
+    }
+  }
+
+  public static string DescribePostOpenConvertPolicy()
+  {
+    if (ImmediateConvertAfterOpen)
+    {
+      return "post-open convert=immediate (legacy, SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN=1)";
+    }
+
+    return
+      $"post-open convert=wait (default idleTicks={PostOpenIdleTicks} settleSeconds={PostOpenSettleSeconds}, no env required)";
+  }
 }

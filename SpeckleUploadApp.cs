@@ -75,6 +75,7 @@ public class SpeckleUploadApp : IExternalApplication
       "App",
       $"OnApplicationInitialized: HTTP started port={PluginSettings.HttpPort} log={PluginLog.LogFilePath}"
     );
+    PluginLog.Step("App", PluginSettings.DescribePostOpenConvertPolicy());
   }
 
   private void OnIdling(object? sender, IdlingEventArgs e)

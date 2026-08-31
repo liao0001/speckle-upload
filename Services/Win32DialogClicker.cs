@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Text;
 using SpeckleUpload.Models;
 
@@ -60,14 +61,53 @@ internal static class Win32DialogClicker
 
   public static void RunOpenPhaseClick(Action clickAction)
   {
-    Task.Run(() =>
+    var task = Task.Run(() =>
     {
       lock (OpenClickGate)
       {
         clickAction();
       }
     });
+
+    lock (OpenClickGate)
+    {
+      _openPhaseTask = task;
+    }
   }
+
+  /// <summary>等待打开阶段 Win32 代点结束，避免与 Speckle 转换并行。</summary>
+  public static void WaitForOpenPhaseComplete(int timeoutMs = 60000)
+  {
+    Task? task;
+    lock (OpenClickGate)
+    {
+      task = _openPhaseTask;
+    }
+
+    if (task == null)
+    {
+      return;
+    }
+
+    var watch = Stopwatch.StartNew();
+    if (!task.Wait(timeoutMs))
+    {
+      PluginLog.Step("Doc", $"Win32: WaitForOpenPhaseComplete timeout after {timeoutMs}ms");
+      return;
+    }
+
+    lock (OpenClickGate)
+    {
+      if (ReferenceEquals(_openPhaseTask, task))
+      {
+        _openPhaseTask = null;
+      }
+    }
+
+    PluginLog.StepElapsed("Doc", "Win32: WaitForOpenPhaseComplete done", watch.ElapsedMilliseconds);
+  }
+
+  private static Task? _openPhaseTask;
 
   public static bool TryAutoClickDialog(
     OpenDialogRulesConfig config,

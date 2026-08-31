@@ -1,3 +1,4 @@
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using SpeckleUpload;
 using SpeckleUpload.Models;
@@ -7,12 +8,24 @@ namespace SpeckleUpload.Services;
 
 public sealed class UploadEventHandler : IExternalEventHandler
 {
+  private enum UploadPhase
+  {
+    None,
+    WaitingPostOpenIdle,
+  }
+
   private readonly object _sync = new();
   private UIApplication? _revitApp;
   private ExternalEvent? _externalEvent;
   private UploadWorkItem? _pending;
   private volatile bool _deferredCloseActive;
   private string? _deferredCloseDocumentPath;
+
+  private UploadPhase _phase = UploadPhase.None;
+  private UploadWorkItem? _activeItem;
+  private UploadCallbackReporter? _activeReporter;
+  private Document? _activeDocument;
+  private int _remainingPostOpenIdleTicks;
 
   public void Initialize(UIApplication uiApp, ExternalEvent externalEvent)
   {
@@ -32,7 +45,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
     lock (_sync)
     {
-      if (_pending != null)
+      if (_pending != null || _phase != UploadPhase.None)
       {
         PluginLog.Step("UploadHandler", "TryEnqueue: busy another item in queue");
         return new UploadEnqueueResult(UploadEnqueueStatus.Busy);
@@ -104,6 +117,24 @@ public sealed class UploadEventHandler : IExternalEventHandler
       }
     }
 
+    if (_phase == UploadPhase.WaitingPostOpenIdle && _revitApp != null)
+    {
+      _remainingPostOpenIdleTicks--;
+      PluginLog.Step(
+        "UploadHandler",
+        $"OnIdling: post-open idle wait remaining={_remainingPostOpenIdleTicks} requestId={_activeItem?.Request.RequestId ?? "-"}"
+      );
+
+      if (_remainingPostOpenIdleTicks > 0)
+      {
+        return;
+      }
+
+      _phase = UploadPhase.None;
+      RunSpecklePhase(_revitApp);
+      return;
+    }
+
     var externalEvent = _externalEvent;
     if (externalEvent == null || !externalEvent.IsPending)
     {
@@ -148,7 +179,6 @@ public sealed class UploadEventHandler : IExternalEventHandler
     var executeWatch = Stopwatch.StartNew();
     PluginLog.Step("UploadHandler", $"Execute: start requestId={request.RequestId} file={request.FilePath}");
 
-    UploadCallbackPayload payload;
     var reporter = new UploadCallbackReporter(request);
     reporter.ReportExecute();
 
@@ -162,44 +192,153 @@ public sealed class UploadEventHandler : IExternalEventHandler
 
       RevitOpenDialogSuppression.CompleteOpenPhase();
       reporter.ReportOpened();
+
+      if (PluginSettings.ImmediateConvertAfterOpen)
+      {
+        PluginLog.Step("UploadHandler", "Execute: immediate convert after open (legacy mode)");
+        RunSpecklePhase(app, item, reporter, document, skipDocumentReady: true);
+        executeWatch.Stop();
+        PluginLog.StepElapsed(
+          "UploadHandler",
+          $"Execute: finished requestId={request.RequestId}",
+          executeWatch.ElapsedMilliseconds
+        );
+        return;
+      }
+
+      var idleTicks = PluginSettings.PostOpenIdleTicks;
+      if (idleTicks > 0)
+      {
+        _activeItem = item;
+        _activeReporter = reporter;
+        _activeDocument = document;
+        _remainingPostOpenIdleTicks = idleTicks;
+        _phase = UploadPhase.WaitingPostOpenIdle;
+        PluginLog.Step(
+          "UploadHandler",
+          $"Execute: document opened; defer Speckle convert until {idleTicks} Idling tick(s) (Revit finishes load/regen)"
+        );
+        executeWatch.Stop();
+        PluginLog.StepElapsed(
+          "UploadHandler",
+          $"Execute: finished open phase requestId={request.RequestId}",
+          executeWatch.ElapsedMilliseconds
+        );
+        return;
+      }
+
+      DocumentService.EnsureDocumentReadyForConversion(app, document);
+      RunSpecklePhase(app, item, reporter, document, skipDocumentReady: false);
+    }
+    catch (Exception ex)
+    {
+      PluginLog.Step("UploadHandler", $"Execute: failed {ex}");
+      var payload = CreateFailurePayload(request, ex.Message);
+      FinishUpload(item, reporter, payload, request);
+    }
+  }
+
+  private void RunSpecklePhase(UIApplication app)
+  {
+    var item = _activeItem;
+    var reporter = _activeReporter;
+    var document = _activeDocument;
+    _activeItem = null;
+    _activeReporter = null;
+    _activeDocument = null;
+
+    if (item == null || reporter == null || document == null)
+    {
+      PluginLog.Step("UploadHandler", "RunSpecklePhase: missing active state, skip");
+      return;
+    }
+
+    RunSpecklePhase(app, item, reporter, document, skipDocumentReady: false);
+  }
+
+  private void RunSpecklePhase(
+    UIApplication app,
+    UploadWorkItem item,
+    UploadCallbackReporter reporter,
+    Document document,
+    bool skipDocumentReady
+  )
+  {
+    var request = item.Request;
+    var phaseWatch = Stopwatch.StartNew();
+    PluginLog.Step("UploadHandler", $"RunSpecklePhase: begin requestId={request.RequestId}");
+
+    UploadCallbackPayload payload;
+    try
+    {
+      if (!skipDocumentReady)
+      {
+        DocumentService.EnsureDocumentReadyForConversion(app, document);
+      }
+      else
+      {
+        PluginLog.Step("UploadHandler", "RunSpecklePhase: skip EnsureDocumentReadyForConversion (legacy immediate)");
+      }
+
       var speckleWatch = Stopwatch.StartNew();
-      PluginLog.Step("UploadHandler", "Execute: step SpeckleSend (dialog suppression must be off)");
+      PluginLog.Step("UploadHandler", "RunSpecklePhase: step SpeckleSend");
       payload = SpeckleSendService.SendPhysicalObjects(document, request, reporter);
       speckleWatch.Stop();
       PluginLog.StepElapsed(
         "UploadHandler",
-        $"Execute: SpeckleSend OK objectId={payload.ObjectId}",
+        $"RunSpecklePhase: SpeckleSend OK objectId={payload.ObjectId}",
         speckleWatch.ElapsedMilliseconds
       );
     }
     catch (Exception ex)
     {
-      PluginLog.Step("UploadHandler", $"Execute: failed {ex}");
-      payload = new UploadCallbackPayload
-      {
-        RequestId = request.RequestId,
-        Success = false,
-        FilePath = request.FilePath,
-        StreamId = request.StreamId,
-        BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? "main" : request.BranchName,
-        CommitMessage = request.CommitMessage,
-        Error = ex.Message,
-      };
+      PluginLog.Step("UploadHandler", $"RunSpecklePhase: failed {ex}");
+      payload = CreateFailurePayload(request, ex.Message);
     }
 
+    FinishUpload(item, reporter, payload, request);
+    phaseWatch.Stop();
+    PluginLog.StepElapsed(
+      "UploadHandler",
+      $"RunSpecklePhase: finished requestId={request.RequestId}",
+      phaseWatch.ElapsedMilliseconds
+    );
+  }
+
+  private static UploadCallbackPayload CreateFailurePayload(UploadRequest request, string error)
+  {
+    return new UploadCallbackPayload
+    {
+      RequestId = request.RequestId,
+      Success = false,
+      FilePath = request.FilePath,
+      StreamId = request.StreamId,
+      BranchName = string.IsNullOrWhiteSpace(request.BranchName) ? "main" : request.BranchName,
+      CommitMessage = request.CommitMessage,
+      Error = error,
+    };
+  }
+
+  private void FinishUpload(
+    UploadWorkItem item,
+    UploadCallbackReporter reporter,
+    UploadCallbackPayload payload,
+    UploadRequest request
+  )
+  {
     try
     {
       reporter.ApplyFinalProgress(payload);
       var callbackWatch = Stopwatch.StartNew();
       PluginLog.Step(
         "UploadHandler",
-        $"Execute: step FinalCallback (sync is_final=true, before close document, timeout={PluginSettings.CallbackTimeoutSeconds}s)"
+        $"FinishUpload: FinalCallback (sync is_final=true, before close document, timeout={PluginSettings.CallbackTimeoutSeconds}s)"
       );
       CallbackService.SendAsync(payload, request.CallbackUrl).GetAwaiter().GetResult();
       callbackWatch.Stop();
       PluginLog.StepElapsed(
         "UploadHandler",
-        $"Execute: callback OK success={payload.Success}",
+        $"FinishUpload: callback OK success={payload.Success}",
         callbackWatch.ElapsedMilliseconds
       );
     }
@@ -207,7 +346,7 @@ public sealed class UploadEventHandler : IExternalEventHandler
     {
       PluginLog.Step(
         "UploadHandler",
-        $"Execute: callback failed ex={ex.GetType().Name} msg={ex.Message}"
+        $"FinishUpload: callback failed ex={ex.GetType().Name} msg={ex.Message}"
       );
       payload.Success = false;
       payload.Error = string.IsNullOrWhiteSpace(payload.Error)
@@ -220,22 +359,16 @@ public sealed class UploadEventHandler : IExternalEventHandler
       _deferredCloseActive = true;
       PluginLog.Step(
         "UploadHandler",
-        "Execute: final callback done; scheduled async close uploaded document on next Idling"
+        "FinishUpload: final callback done; scheduled async close uploaded document on next Idling"
       );
     }
 
     PluginLog.Step(
       "UploadHandler",
-      $"Execute: result requestId={request.RequestId} success={payload.Success} error={payload.Error ?? "(none)"} objectId={payload.ObjectId ?? "-"} commitId={payload.CommitId ?? "-"}"
+      $"FinishUpload: result requestId={request.RequestId} success={payload.Success} error={payload.Error ?? "(none)"} objectId={payload.ObjectId ?? "-"} commitId={payload.CommitId ?? "-"}"
     );
 
     item.Completion.TrySetResult(payload);
-    executeWatch.Stop();
-    PluginLog.StepElapsed(
-      "UploadHandler",
-      $"Execute: finished requestId={request.RequestId}",
-      executeWatch.ElapsedMilliseconds
-    );
   }
 
   public string GetName() => "SpeckleUpload Upload Handler";
