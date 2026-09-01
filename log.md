@@ -229,3 +229,8 @@
 - 新增 `Revit/ElementIdCompat.cs` 统一 `ElementId` 读写（2022 用 `IntegerValue`，2024+ 用 `Value`）
 - 新增构建后工具 `tools/PatchElementIdForRevit2026`：对输出目录内 Speckle Converter 等 DLL 做 IL 补丁（`get_IntegerValue` → `get_Value` + `conv.i4`，`ElementId(int)` → `ElementId(long)`）
 - `SpeckleUpload.csproj` 2026 构建后自动执行补丁；CI 2026 矩阵增加显式补丁步骤
+
+## 2026-09-01 21:49
+- 修复 CI 三版本编译失败：`tools/PatchElementIdForRevit2026/Program.cs` 被 SDK 默认 glob 编入主项目，现 `Compile Remove="tools/**"` 排除
+- 恢复误删的 `Newtonsoft.Json` 包引用
+- 新增 `Directory.Build.props` 提前设置 `BaseOutputPath`/`BaseIntermediateOutputPath`，消除 MSB3539 警告

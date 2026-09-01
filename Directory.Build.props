@@ -1,0 +1,8 @@
+<Project>
+  <!-- BaseOutputPath / BaseIntermediateOutputPath 须在 Microsoft.Common.props 之前设置，避免 MSB3539 -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'SpeckleUpload'">
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
+    <BaseOutputPath>bin\$(RevitVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

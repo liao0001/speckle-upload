@@ -10,8 +10,6 @@
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <UseWindowsForms>true</UseWindowsForms>
-    <BaseOutputPath>bin\$(RevitVersion)\</BaseOutputPath>
-    <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RevitVersion)' == '2022'">
@@ -23,6 +21,12 @@
   <PropertyGroup Condition="'$(RevitVersion)' == '2026'">
     <DefineConstants>$(DefineConstants);REVIT2026</DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tools/**" />
+    <None Remove="tools/**" />
+    <Content Remove="tools/**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
