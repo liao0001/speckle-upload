@@ -253,3 +253,8 @@
 ## 2026-09-01 22:30
 - 修复补丁工具编译：`Mono.Cecil` 0.11 的 `WriterParameters` 无 `AssemblyResolver`，改为 `assembly.Write(path)`
 - CI 拆为两个 job：`build-2022-2024`（仅编插件）与 `build-2026`（插件 + 补丁工具）；2026 直接执行补丁 exe，避免 `dotnet run --no-build` 找不到文件
+
+## 2026-09-01 22:35
+- 补丁工具改为纯 Cecil 实现，运行时不再加载 `RevitAPI`（避免 `FileNotFoundException`）；CI 从 NuGet 缓存定位 `RevitAPI.dll` 并作为第 2 参数传入
+- 补丁工具目标框架改回 `net8.0`（仅依赖 Mono.Cecil，无需 Revit API 包）
+- CI 暂时停用 2022/2024 构建，仅保留 `build-2026` job

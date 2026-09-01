@@ -8,85 +8,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-2022-2024:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        revit_version: ["2022", "2024"]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Restore
-        run: dotnet restore SpeckleUpload.sln -p:RevitVersion=${{ matrix.revit_version }}
-
-      - name: Build
-        run: dotnet build SpeckleUpload.sln -c Release --no-restore -p:RevitVersion=${{ matrix.revit_version }}
-
-      - name: Stage install bundle
-        shell: pwsh
-        env:
-          REVIT_VERSION: ${{ matrix.revit_version }}
-        run: |
-          $out = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
-          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\$env:REVIT_VERSION\Release\net48"
-          New-Item -ItemType Directory -Path $out -Force | Out-Null
-          Copy-Item -Path (Join-Path $bin "*") -Destination $out -Recurse -Force
-
-          if ($env:REVIT_VERSION -eq "2024") {
-            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.Revit2024.addin") -Destination (Join-Path $out "SpeckleUpload.addin") -Force
-          } else {
-            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
-          }
-
-          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.ps1") -Destination $out -Force
-          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.cmd") -Destination $out -Force
-          if ($env:REVIT_VERSION -eq "2024") {
-            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload-2024.cmd") -Destination $out -Force
-          }
-
-      - name: Pack install bundle
-        shell: pwsh
-        env:
-          REVIT_VERSION: ${{ matrix.revit_version }}
-          GIT_SHA: ${{ github.sha }}
-          GIT_REF: ${{ github.ref_name }}
-        run: |
-          $timestamp = Get-Date -Format "yyyyMMddHHmmss"
-          $shortSha = $env:GIT_SHA.Substring(0, 6)
-          $zipName = "speckle-upload-$env:REVIT_VERSION-${timestamp}-${shortSha}.zip"
-          $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
-          $bundle = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
-
-          @(
-            "product=SpeckleUpload",
-            "revit_version=$env:REVIT_VERSION",
-            "built_at=$timestamp",
-            "commit=$env:GIT_SHA",
-            "commit_short=$shortSha",
-            "ref=$env:GIT_REF"
-          ) | Set-Content -Path (Join-Path $bundle "BUILD_INFO.txt") -Encoding UTF8
-
-          if (Test-Path $zipPath) {
-            Remove-Item -LiteralPath $zipPath -Force
-          }
-          Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $zipPath -Force
-
-          Write-Host "Created package: $zipName"
-          "PACKAGE_ZIP=$zipName" >> $env:GITHUB_ENV
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PACKAGE_ZIP }}
-          path: ${{ github.workspace }}/${{ env.PACKAGE_ZIP }}
+  # 2022/2024 构建暂时停用，换分支后再恢复
+  # build-2022-2024:
+  #   runs-on: windows-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       revit_version: ["2022", "2024"]
+  #   ...
 
   build-2026:
     runs-on: windows-latest
@@ -115,8 +44,14 @@ jobs:
           $patchProject = Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\PatchElementIdForRevit2026.csproj"
           $bin = Join-Path $env:GITHUB_WORKSPACE "bin\2026\Release\net8.0-windows"
           dotnet build $patchProject -c Release --no-restore
-          $patchExe = Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\bin\Release\net8.0-windows\PatchElementIdForRevit2026.exe"
-          & $patchExe $bin
+          $revitApi = Get-ChildItem (Join-Path $env:USERPROFILE ".nuget\packages\nice3point.revit.api.revitapi") -Recurse -Filter RevitAPI.dll |
+            Where-Object { $_.FullName -match '\\lib\\net8\.0-windows\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $revitApi) { throw "RevitAPI.dll not found in NuGet cache" }
+          Write-Host "Using RevitAPI: $($revitApi.FullName)"
+          $patchExe = Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\bin\Release\net8.0\PatchElementIdForRevit2026.exe"
+          & $patchExe $bin $revitApi.FullName
 
       - name: Stage install bundle
         shell: pwsh

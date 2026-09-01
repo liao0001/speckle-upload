@@ -1,5 +1,3 @@
-using System.Reflection;
-using Autodesk.Revit.DB;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -22,7 +20,7 @@ internal static class Program
   {
     if (args.Length == 0 || string.IsNullOrWhiteSpace(args[0]))
     {
-      Console.Error.WriteLine("Usage: PatchElementIdForRevit2026 <plugin-output-directory>");
+      Console.Error.WriteLine("Usage: PatchElementIdForRevit2026 <plugin-output-directory> [RevitAPI.dll]");
       return 1;
     }
 
@@ -33,17 +31,16 @@ internal static class Program
       return 1;
     }
 
-    var revitApiPath = typeof(ElementId).Assembly.Location;
-    if (string.IsNullOrWhiteSpace(revitApiPath) || !File.Exists(revitApiPath))
+    var revitApiPath = ResolveRevitApiPath(args.Length > 1 ? args[1] : null);
+    if (revitApiPath == null)
     {
-      Console.Error.WriteLine("RevitAPI.dll not found. Ensure Nice3point.Revit.Api.RevitAPI is restored.");
+      Console.Error.WriteLine(
+        "RevitAPI.dll not found. Pass path as 2nd argument or set REVIT_API_DLL / install Nice3point.Revit.Api.RevitAPI."
+      );
       return 1;
     }
 
     Console.WriteLine($"RevitAPI: {revitApiPath}");
-
-    var getValueMethod = typeof(ElementId).GetProperty(nameof(ElementId.Value))!.GetMethod!;
-    var longCtor = typeof(ElementId).GetConstructor([typeof(long)])!;
 
     var patchedFiles = 0;
     foreach (var dllPath in Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly))
@@ -53,7 +50,7 @@ internal static class Program
         continue;
       }
 
-      if (PatchAssembly(dllPath, revitApiPath, getValueMethod, longCtor))
+      if (PatchAssembly(dllPath, revitApiPath))
       {
         patchedFiles++;
         Console.WriteLine($"patched: {Path.GetFileName(dllPath)}");
@@ -62,6 +59,37 @@ internal static class Program
 
     Console.WriteLine($"PatchElementIdForRevit2026: {patchedFiles} file(s) in {directory}");
     return 0;
+  }
+
+  private static string? ResolveRevitApiPath(string? explicitPath)
+  {
+    if (!string.IsNullOrWhiteSpace(explicitPath))
+    {
+      var full = Path.GetFullPath(explicitPath);
+      return File.Exists(full) ? full : null;
+    }
+
+    var fromEnv = Environment.GetEnvironmentVariable("REVIT_API_DLL");
+    if (!string.IsNullOrWhiteSpace(fromEnv) && File.Exists(fromEnv))
+    {
+      return Path.GetFullPath(fromEnv);
+    }
+
+    var nugetRoot =
+      Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+      ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+
+    var packageRoot = Path.Combine(nugetRoot, "nice3point.revit.api.revitapi");
+    if (!Directory.Exists(packageRoot))
+    {
+      return null;
+    }
+
+    return Directory
+      .EnumerateFiles(packageRoot, "RevitAPI.dll", SearchOption.AllDirectories)
+      .Where(path => path.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+      .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+      .FirstOrDefault();
   }
 
   private static bool ShouldSkip(string assemblyName)
@@ -77,13 +105,31 @@ internal static class Program
     return false;
   }
 
-  private static bool PatchAssembly(
-    string path,
-    string revitApiPath,
-    MethodInfo getValueMethod,
-    ConstructorInfo longCtorInfo
-  )
+  private static bool PatchAssembly(string path, string revitApiPath)
   {
+    using var revitApiAssembly = AssemblyDefinition.ReadAssembly(revitApiPath);
+    var elementIdType = revitApiAssembly.MainModule.GetType(ElementIdTypeName);
+    if (elementIdType == null)
+    {
+      Console.Error.WriteLine($"Type not found in RevitAPI: {ElementIdTypeName}");
+      return false;
+    }
+
+    var getValueDef = elementIdType.Methods.FirstOrDefault(method =>
+      method.Name == "get_Value" && method.Parameters.Count == 0 && !method.IsStatic
+    );
+    var longCtorDef = elementIdType.Methods.FirstOrDefault(method =>
+      method.IsConstructor
+      && method.Parameters.Count == 1
+      && method.Parameters[0].ParameterType.FullName == "System.Int64"
+    );
+
+    if (getValueDef == null || longCtorDef == null)
+    {
+      Console.Error.WriteLine("RevitAPI ElementId.get_Value or .ctor(long) not found.");
+      return false;
+    }
+
     var resolver = new RevitApiAssemblyResolver(revitApiPath, [Path.GetDirectoryName(path)!]);
 
     var readerParameters = new ReaderParameters
@@ -95,8 +141,8 @@ internal static class Program
 
     using var assembly = AssemblyDefinition.ReadAssembly(path, readerParameters);
     var module = assembly.MainModule;
-    var getValueRef = module.ImportReference(getValueMethod);
-    var longCtorRef = module.ImportReference(longCtorInfo);
+    var getValueRef = module.ImportReference(getValueDef);
+    var longCtorRef = module.ImportReference(longCtorDef);
 
     var changed = false;
     foreach (var type in module.Types)
