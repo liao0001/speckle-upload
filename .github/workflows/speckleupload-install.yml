@@ -44,12 +44,19 @@ jobs:
           $patchProject = Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\PatchElementIdForRevit2026.csproj"
           $bin = Join-Path $env:GITHUB_WORKSPACE "bin\2026\Release\net8.0-windows"
           dotnet build $patchProject -c Release --no-restore
-          $revitApi = Get-ChildItem (Join-Path $env:USERPROFILE ".nuget\packages\nice3point.revit.api.revitapi") -Recurse -Filter RevitAPI.dll |
-            Where-Object { $_.FullName -match '\\lib\\net8\.0-windows\\' } |
+
+          $pkgRoot = (dotnet msbuild (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.csproj") -nologo -getProperty:PkgNice3point_Revit_Api_RevitAPI -p:RevitVersion=2026).Trim()
+          if (-not $pkgRoot -or -not (Test-Path $pkgRoot)) {
+            throw "Nice3point Revit API package path not found (PkgNice3point_Revit_Api_RevitAPI)"
+          }
+          Write-Host "Nice3point package root: $pkgRoot"
+
+          $revitApi = Get-ChildItem $pkgRoot -Recurse -Filter RevitAPI.dll -ErrorAction SilentlyContinue |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-          if (-not $revitApi) { throw "RevitAPI.dll not found in NuGet cache" }
+          if (-not $revitApi) { throw "RevitAPI.dll not found under $pkgRoot" }
           Write-Host "Using RevitAPI: $($revitApi.FullName)"
+
           $patchExe = Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\bin\Release\net8.0\PatchElementIdForRevit2026.exe"
           & $patchExe $bin $revitApi.FullName
 

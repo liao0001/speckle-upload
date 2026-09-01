@@ -258,3 +258,6 @@
 - 补丁工具改为纯 Cecil 实现，运行时不再加载 `RevitAPI`（避免 `FileNotFoundException`）；CI 从 NuGet 缓存定位 `RevitAPI.dll` 并作为第 2 参数传入
 - 补丁工具目标框架改回 `net8.0`（仅依赖 Mono.Cecil，无需 Revit API 包）
 - CI 暂时停用 2022/2024 构建，仅保留 `build-2026` job
+
+## 2026-09-01 22:39
+- 修复 CI 找不到 `RevitAPI.dll`：Nice3point 包将 DLL 放在 `Content/` 而非 `lib/`；`SpeckleUpload.csproj` 为 Revit API 包启用 `GeneratePathProperty`，CI 用 `dotnet msbuild -getProperty:PkgNice3point_Revit_Api_RevitAPI` 定位包目录后递归查找

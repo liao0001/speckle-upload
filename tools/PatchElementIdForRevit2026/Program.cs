@@ -87,7 +87,6 @@ internal static class Program
 
     return Directory
       .EnumerateFiles(packageRoot, "RevitAPI.dll", SearchOption.AllDirectories)
-      .Where(path => path.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
       .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
       .FirstOrDefault();
   }
