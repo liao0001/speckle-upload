@@ -246,3 +246,6 @@
 
 ## 2026-09-01 22:10
 - 修复补丁工具运行时 `Failed to resolve assembly: RevitAPI`：补丁项目引用 `Nice3point.Revit.Api.RevitAPI` 2026，自定义 `RevitApiAssemblyResolver` 在 Cecil 读写时解析 RevitAPI；`get_Value`/`.ctor(long)` 改用 `ImportReference`
+
+## 2026-09-01 22:23
+- 修复补丁工具 restore 失败：`PatchElementIdForRevit2026` 目标框架由 `net8.0` 改为 `net8.0-windows`（与 Nice3point Revit API 2026 包一致）
