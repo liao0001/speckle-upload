@@ -239,3 +239,7 @@
 - 修复 2026 CI 仍编译 `tools/PatchElementIdForRevit2026/Program.cs` 入主项目：改用 `Directory.Build.props` 的 `DefaultItemExcludes=tools\**`；移除 `SpeckleUpload.csproj` 内 PostBuild `dotnet run`（与 `--no-restore` 冲突）
 - 补丁工具加入 `SpeckleUpload.sln`，`dotnet restore` 会拉取 `Mono.Cecil`；CI 2026 单独 `dotnet build` + `dotnet run --no-build` 执行补丁
 - 修复 `SpeckleUpload.csproj` 因误编辑导致的 XML 结构损坏
+
+## 2026-09-01 22:02
+- 修复补丁工具编译错误：Mono.Cecil 0.11 无 `MethodBody.OptimizeMacros()`，已移除该调用
+- 补丁工具移出 `SpeckleUpload.sln`，避免 2022/2024 矩阵误编；CI 仅在 2026 时单独 restore/build 补丁项目

@@ -188,11 +188,6 @@ internal static class Program
       }
     }
 
-    if (changed)
-    {
-      method.Body.OptimizeMacros();
-    }
-
     return changed;
   }
 

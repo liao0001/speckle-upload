@@ -25,7 +25,12 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore SpeckleUpload.sln -p:RevitVersion=${{ matrix.revit_version }}
+        shell: pwsh
+        run: |
+          dotnet restore SpeckleUpload.sln -p:RevitVersion=${{ matrix.revit_version }}
+          if ("${{ matrix.revit_version }}" -eq "2026") {
+            dotnet restore (Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\PatchElementIdForRevit2026.csproj")
+          }
 
       - name: Build
         run: dotnet build SpeckleUpload.sln -c Release --no-restore -p:RevitVersion=${{ matrix.revit_version }}
