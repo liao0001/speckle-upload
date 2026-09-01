@@ -10,5 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Mono.Cecil" Version="0.11.5" />
+    <!-- 写入 IL 补丁时需解析 RevitAPI 元数据（Speckle Converter 引用 Revit 25.x） -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2026.*" />
   </ItemGroup>
 </Project>

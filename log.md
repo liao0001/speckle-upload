@@ -243,3 +243,6 @@
 ## 2026-09-01 22:02
 - 修复补丁工具编译错误：Mono.Cecil 0.11 无 `MethodBody.OptimizeMacros()`，已移除该调用
 - 补丁工具移出 `SpeckleUpload.sln`，避免 2022/2024 矩阵误编；CI 仅在 2026 时单独 restore/build 补丁项目
+
+## 2026-09-01 22:10
+- 修复补丁工具运行时 `Failed to resolve assembly: RevitAPI`：补丁项目引用 `Nice3point.Revit.Api.RevitAPI` 2026，自定义 `RevitApiAssemblyResolver` 在 Cecil 读写时解析 RevitAPI；`get_Value`/`.ctor(long)` 改用 `ImportReference`

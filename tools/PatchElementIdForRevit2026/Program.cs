@@ -1,3 +1,5 @@
+using System.Reflection;
+using Autodesk.Revit.DB;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -31,6 +33,18 @@ internal static class Program
       return 1;
     }
 
+    var revitApiPath = typeof(ElementId).Assembly.Location;
+    if (string.IsNullOrWhiteSpace(revitApiPath) || !File.Exists(revitApiPath))
+    {
+      Console.Error.WriteLine("RevitAPI.dll not found. Ensure Nice3point.Revit.Api.RevitAPI is restored.");
+      return 1;
+    }
+
+    Console.WriteLine($"RevitAPI: {revitApiPath}");
+
+    var getValueMethod = typeof(ElementId).GetProperty(nameof(ElementId.Value))!.GetMethod!;
+    var longCtor = typeof(ElementId).GetConstructor([typeof(long)])!;
+
     var patchedFiles = 0;
     foreach (var dllPath in Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly))
     {
@@ -39,7 +53,7 @@ internal static class Program
         continue;
       }
 
-      if (PatchAssembly(dllPath))
+      if (PatchAssembly(dllPath, revitApiPath, getValueMethod, longCtor))
       {
         patchedFiles++;
         Console.WriteLine($"patched: {Path.GetFileName(dllPath)}");
@@ -63,10 +77,14 @@ internal static class Program
     return false;
   }
 
-  private static bool PatchAssembly(string path)
+  private static bool PatchAssembly(
+    string path,
+    string revitApiPath,
+    MethodInfo getValueMethod,
+    ConstructorInfo longCtorInfo
+  )
   {
-    var resolver = new DefaultAssemblyResolver();
-    resolver.AddSearchDirectory(Path.GetDirectoryName(path)!);
+    var resolver = new RevitApiAssemblyResolver(revitApiPath, [Path.GetDirectoryName(path)!]);
 
     var readerParameters = new ReaderParameters
     {
@@ -76,14 +94,14 @@ internal static class Program
     };
 
     using var assembly = AssemblyDefinition.ReadAssembly(path, readerParameters);
-    var changed = false;
+    var module = assembly.MainModule;
+    var getValueRef = module.ImportReference(getValueMethod);
+    var longCtorRef = module.ImportReference(longCtorInfo);
 
-    foreach (var module in assembly.Modules)
+    var changed = false;
+    foreach (var type in module.Types)
     {
-      foreach (var type in module.Types)
-      {
-        changed |= PatchType(type, module);
-      }
+      changed |= PatchType(type, getValueRef, longCtorRef);
     }
 
     if (!changed)
@@ -91,11 +109,11 @@ internal static class Program
       return false;
     }
 
-    assembly.Write(path);
+    assembly.Write(path, new WriterParameters { AssemblyResolver = resolver });
     return true;
   }
 
-  private static bool PatchType(TypeDefinition type, ModuleDefinition module)
+  private static bool PatchType(TypeDefinition type, MethodReference getValueRef, MethodReference longCtorRef)
   {
     var changed = false;
 
@@ -106,47 +124,24 @@ internal static class Program
         continue;
       }
 
-      changed |= PatchMethod(method, module);
+      changed |= PatchMethod(method, getValueRef, longCtorRef);
     }
 
     foreach (var nested in type.NestedTypes)
     {
-      changed |= PatchType(nested, module);
+      changed |= PatchType(nested, getValueRef, longCtorRef);
     }
 
     return changed;
   }
 
-  private static bool PatchMethod(MethodDefinition method, ModuleDefinition module)
+  private static bool PatchMethod(MethodDefinition method, MethodReference getValueRef, MethodReference longCtorRef)
   {
     var instructions = method.Body.Instructions;
     if (instructions.Count == 0)
     {
       return false;
     }
-
-    var elementIdType = ResolveElementIdType(module);
-    if (elementIdType == null)
-    {
-      return false;
-    }
-
-    var getValue = new MethodReference("get_Value", module.TypeSystem.Int64, elementIdType)
-    {
-      HasThis = true,
-    };
-
-    var intCtor = new MethodReference(".ctor", module.TypeSystem.Void, elementIdType)
-    {
-      HasThis = true,
-    };
-    intCtor.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
-
-    var longCtor = new MethodReference(".ctor", module.TypeSystem.Void, elementIdType)
-    {
-      HasThis = true,
-    };
-    longCtor.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int64));
 
     var changed = false;
     var processor = method.Body.GetILProcessor();
@@ -171,7 +166,7 @@ internal static class Program
 
       if (methodReference.Name == "get_IntegerValue")
       {
-        instruction.Operand = getValue;
+        instruction.Operand = getValueRef;
         processor.InsertAfter(instruction, processor.Create(OpCodes.Conv_Ovf_I4));
         changed = true;
         index++;
@@ -181,7 +176,7 @@ internal static class Program
       if (methodReference.Name == ".ctor" && methodReference.Parameters.Count == 1
           && methodReference.Parameters[0].ParameterType.FullName == "System.Int32")
       {
-        instruction.Operand = longCtor;
+        instruction.Operand = longCtorRef;
         processor.InsertBefore(instruction, processor.Create(OpCodes.Conv_I8));
         changed = true;
         index++;
@@ -191,17 +186,32 @@ internal static class Program
     return changed;
   }
 
-  private static TypeReference? ResolveElementIdType(ModuleDefinition module)
+  private sealed class RevitApiAssemblyResolver : DefaultAssemblyResolver
   {
-    var revitApi = module.AssemblyReferences.FirstOrDefault(reference =>
-      string.Equals(reference.Name, "RevitAPI", StringComparison.OrdinalIgnoreCase)
-    );
+    private readonly string _revitApiPath;
+    private AssemblyDefinition? _revitApiAssembly;
 
-    if (revitApi == null)
+    internal RevitApiAssemblyResolver(string revitApiPath, IEnumerable<string> searchDirectories)
     {
-      return null;
+      _revitApiPath = revitApiPath;
+      foreach (var directory in searchDirectories)
+      {
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+          AddSearchDirectory(directory);
+        }
+      }
     }
 
-    return new TypeReference("Autodesk.Revit.DB", "ElementId", module, revitApi);
+    public override AssemblyDefinition Resolve(AssemblyNameReference name)
+    {
+      if (string.Equals(name.Name, "RevitAPI", StringComparison.OrdinalIgnoreCase))
+      {
+        _revitApiAssembly ??= AssemblyDefinition.ReadAssembly(_revitApiPath);
+        return _revitApiAssembly;
+      }
+
+      return base.Resolve(name);
+    }
   }
 }
