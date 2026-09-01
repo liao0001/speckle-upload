@@ -4,5 +4,6 @@
     <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
     <BaseOutputPath>bin\$(RevitVersion)\</BaseOutputPath>
     <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>

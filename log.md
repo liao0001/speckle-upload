@@ -234,3 +234,8 @@
 - 修复 CI 三版本编译失败：`tools/PatchElementIdForRevit2026/Program.cs` 被 SDK 默认 glob 编入主项目，现 `Compile Remove="tools/**"` 排除
 - 恢复误删的 `Newtonsoft.Json` 包引用
 - 新增 `Directory.Build.props` 提前设置 `BaseOutputPath`/`BaseIntermediateOutputPath`，消除 MSB3539 警告
+
+## 2026-09-01 21:56
+- 修复 2026 CI 仍编译 `tools/PatchElementIdForRevit2026/Program.cs` 入主项目：改用 `Directory.Build.props` 的 `DefaultItemExcludes=tools\**`；移除 `SpeckleUpload.csproj` 内 PostBuild `dotnet run`（与 `--no-restore` 冲突）
+- 补丁工具加入 `SpeckleUpload.sln`，`dotnet restore` 会拉取 `Mono.Cecil`；CI 2026 单独 `dotnet build` + `dotnet run --no-build` 执行补丁
+- 修复 `SpeckleUpload.csproj` 因误编辑导致的 XML 结构损坏
