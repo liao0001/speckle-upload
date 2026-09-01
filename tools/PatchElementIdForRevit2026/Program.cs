@@ -109,7 +109,7 @@ internal static class Program
       return false;
     }
 
-    assembly.Write(path, new WriterParameters { AssemblyResolver = resolver });
+    assembly.Write(path);
     return true;
   }
 

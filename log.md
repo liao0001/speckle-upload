@@ -249,3 +249,7 @@
 
 ## 2026-09-01 22:23
 - 修复补丁工具 restore 失败：`PatchElementIdForRevit2026` 目标框架由 `net8.0` 改为 `net8.0-windows`（与 Nice3point Revit API 2026 包一致）
+
+## 2026-09-01 22:30
+- 修复补丁工具编译：`Mono.Cecil` 0.11 的 `WriterParameters` 无 `AssemblyResolver`，改为 `assembly.Write(path)`
+- CI 拆为两个 job：`build-2022-2024`（仅编插件）与 `build-2026`（插件 + 补丁工具）；2026 直接执行补丁 exe，避免 `dotnet run --no-build` 找不到文件
