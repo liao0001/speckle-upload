@@ -42,23 +42,76 @@ internal static class Program
 
     Console.WriteLine($"RevitAPI: {revitApiPath}");
 
-    var patchedFiles = 0;
-    foreach (var dllPath in Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly))
+    using var revitApiAssembly = AssemblyDefinition.ReadAssembly(revitApiPath);
+    var elementIdType = revitApiAssembly.MainModule.GetType(ElementIdTypeName);
+    if (elementIdType == null)
     {
-      if (ShouldSkip(Path.GetFileNameWithoutExtension(dllPath)))
-      {
-        continue;
-      }
-
-      if (PatchAssembly(dllPath, revitApiPath))
-      {
-        patchedFiles++;
-        Console.WriteLine($"patched: {Path.GetFileName(dllPath)}");
-      }
+      Console.Error.WriteLine($"Type not found in RevitAPI: {ElementIdTypeName}");
+      return 1;
     }
 
-    Console.WriteLine($"PatchElementIdForRevit2026: {patchedFiles} file(s) in {directory}");
-    return 0;
+    var getValueDef = elementIdType.Methods.FirstOrDefault(method =>
+      method.Name == "get_Value" && method.Parameters.Count == 0 && !method.IsStatic
+    );
+    var longCtorDef = elementIdType.Methods.FirstOrDefault(method =>
+      method.IsConstructor
+      && method.Parameters.Count == 1
+      && method.Parameters[0].ParameterType.FullName == "System.Int64"
+    );
+
+    if (getValueDef == null || longCtorDef == null)
+    {
+      Console.Error.WriteLine("RevitAPI ElementId.get_Value or .ctor(long) not found.");
+      return 1;
+    }
+
+    // 在临时目录批量补丁，避免 Cecil 解析依赖时锁住输出目录中的其它 DLL
+    var workDir = Path.Combine(Path.GetTempPath(), "speckle-patch-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(workDir);
+
+    try
+    {
+      foreach (var dllPath in Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly))
+      {
+        File.Copy(dllPath, Path.Combine(workDir, Path.GetFileName(dllPath)), overwrite: true);
+      }
+
+      var patchedNames = new List<string>();
+      foreach (var dllPath in Directory.EnumerateFiles(workDir, "*.dll", SearchOption.TopDirectoryOnly))
+      {
+        if (ShouldSkip(Path.GetFileNameWithoutExtension(dllPath)))
+        {
+          continue;
+        }
+
+        if (PatchAssembly(dllPath, revitApiPath, getValueDef, longCtorDef))
+        {
+          patchedNames.Add(Path.GetFileName(dllPath));
+          Console.WriteLine($"patched: {Path.GetFileName(dllPath)}");
+        }
+      }
+
+      foreach (var fileName in patchedNames)
+      {
+        var source = Path.Combine(workDir, fileName);
+        var target = Path.Combine(directory, fileName);
+        File.Copy(source, target, overwrite: true);
+      }
+
+      Console.WriteLine($"PatchElementIdForRevit2026: {patchedNames.Count} file(s) in {directory}");
+      return 0;
+    }
+    finally
+    {
+      try
+      {
+        Directory.Delete(workDir, recursive: true);
+      }
+      catch
+      {
+        // 临时目录清理失败不影响补丁结果
+      }
+    }
   }
 
   private static string? ResolveRevitApiPath(string? explicitPath)
@@ -87,6 +140,7 @@ internal static class Program
 
     return Directory
       .EnumerateFiles(packageRoot, "RevitAPI.dll", SearchOption.AllDirectories)
+      .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
       .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
       .FirstOrDefault();
   }
@@ -104,38 +158,20 @@ internal static class Program
     return false;
   }
 
-  private static bool PatchAssembly(string path, string revitApiPath)
+  private static bool PatchAssembly(
+    string path,
+    string revitApiPath,
+    MethodDefinition getValueDef,
+    MethodDefinition longCtorDef
+  )
   {
-    using var revitApiAssembly = AssemblyDefinition.ReadAssembly(revitApiPath);
-    var elementIdType = revitApiAssembly.MainModule.GetType(ElementIdTypeName);
-    if (elementIdType == null)
-    {
-      Console.Error.WriteLine($"Type not found in RevitAPI: {ElementIdTypeName}");
-      return false;
-    }
-
-    var getValueDef = elementIdType.Methods.FirstOrDefault(method =>
-      method.Name == "get_Value" && method.Parameters.Count == 0 && !method.IsStatic
-    );
-    var longCtorDef = elementIdType.Methods.FirstOrDefault(method =>
-      method.IsConstructor
-      && method.Parameters.Count == 1
-      && method.Parameters[0].ParameterType.FullName == "System.Int64"
-    );
-
-    if (getValueDef == null || longCtorDef == null)
-    {
-      Console.Error.WriteLine("RevitAPI ElementId.get_Value or .ctor(long) not found.");
-      return false;
-    }
-
-    var resolver = new RevitApiAssemblyResolver(revitApiPath, [Path.GetDirectoryName(path)!]);
+    using var resolver = new RevitApiAssemblyResolver(revitApiPath, Path.GetDirectoryName(path)!);
 
     var readerParameters = new ReaderParameters
     {
       AssemblyResolver = resolver,
-      ReadWrite = true,
       InMemory = true,
+      ReadWrite = false,
     };
 
     using var assembly = AssemblyDefinition.ReadAssembly(path, readerParameters);
@@ -154,7 +190,9 @@ internal static class Program
       return false;
     }
 
-    assembly.Write(path);
+    var tempPath = path + ".patchtmp";
+    assembly.Write(tempPath);
+    File.Move(tempPath, path, overwrite: true);
     return true;
   }
 
@@ -231,20 +269,17 @@ internal static class Program
     return changed;
   }
 
-  private sealed class RevitApiAssemblyResolver : DefaultAssemblyResolver
+  private sealed class RevitApiAssemblyResolver : DefaultAssemblyResolver, IDisposable
   {
     private readonly string _revitApiPath;
     private AssemblyDefinition? _revitApiAssembly;
 
-    internal RevitApiAssemblyResolver(string revitApiPath, IEnumerable<string> searchDirectories)
+    internal RevitApiAssemblyResolver(string revitApiPath, string dependencySearchDirectory)
     {
       _revitApiPath = revitApiPath;
-      foreach (var directory in searchDirectories)
+      if (!string.IsNullOrWhiteSpace(dependencySearchDirectory))
       {
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-          AddSearchDirectory(directory);
-        }
+        AddSearchDirectory(dependencySearchDirectory);
       }
     }
 
@@ -257,6 +292,11 @@ internal static class Program
       }
 
       return base.Resolve(name);
+    }
+
+    public void Dispose()
+    {
+      _revitApiAssembly?.Dispose();
     }
   }
 }

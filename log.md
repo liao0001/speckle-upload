@@ -261,3 +261,7 @@
 
 ## 2026-09-01 22:39
 - 修复 CI 找不到 `RevitAPI.dll`：Nice3point 包将 DLL 放在 `Content/` 而非 `lib/`；`SpeckleUpload.csproj` 为 Revit API 包启用 `GeneratePathProperty`，CI 用 `dotnet msbuild -getProperty:PkgNice3point_Revit_Api_RevitAPI` 定位包目录后递归查找
+
+## 2026-09-01 22:47
+- 修复补丁工具 `Objects.dll` 文件锁：先在临时目录复制全部 DLL 再批量补丁，仅将已修改文件拷回输出目录；读写改为 `ReadWrite=false` + 写临时文件后覆盖
+- CI / 本地查找 `RevitAPI.dll` 时排除 `ref\` 目录，优先使用完整程序集

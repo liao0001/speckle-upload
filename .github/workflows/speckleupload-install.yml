@@ -52,6 +52,7 @@ jobs:
           Write-Host "Nice3point package root: $pkgRoot"
 
           $revitApi = Get-ChildItem $pkgRoot -Recurse -Filter RevitAPI.dll -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\ref\\' } |
             Sort-Object FullName -Descending |
             Select-Object -First 1
           if (-not $revitApi) { throw "RevitAPI.dll not found under $pkgRoot" }
