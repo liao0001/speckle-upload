@@ -223,3 +223,9 @@
 - 新增 Revit **2026** 构建：`-p:RevitVersion=2026`，目标框架 `net8.0-windows`，默认 HTTP 端口 **6691**
 - NuGet 尚无 `Speckle.Objects.Converter.Revit2026`，暂引用 `Speckle.Objects.Converter.Revit2025` 2.23.2
 - 新增 `SpeckleUpload.Revit2026.addin`、`Install-SpeckleUpload-2026.cmd`；CI 矩阵增加 2026；`ElementId` 判断改为 `REVIT2022` vs 其它版本
+
+## 2026-09-01 21:13
+- 修复 Revit 2026 运行时 `ElementId.IntegerValue` 缺失：本地实现 `IsPhysicalElement`（`Revit/RevitElementExtensions.cs`），不再调用 NuGet `RevitSharedResources` 扩展
+- 新增 `Revit/ElementIdCompat.cs` 统一 `ElementId` 读写（2022 用 `IntegerValue`，2024+ 用 `Value`）
+- 新增构建后工具 `tools/PatchElementIdForRevit2026`：对输出目录内 Speckle Converter 等 DLL 做 IL 补丁（`get_IntegerValue` → `get_Value` + `conv.i4`，`ElementId(int)` → `ElementId(long)`）
+- `SpeckleUpload.csproj` 2026 构建后自动执行补丁；CI 2026 矩阵增加显式补丁步骤

@@ -47,4 +47,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- Revit 2026 移除了 ElementId.IntegerValue；Speckle 2.23.2 Converter 仍引用旧 API，构建后 IL 补丁 -->
+  <Target Name="PatchElementIdForRevit2026" AfterTargets="Build" Condition="'$(RevitVersion)' == '2026'">
+    <Exec Command="dotnet run --project &quot;$(MSBuildThisFileDirectory)tools\PatchElementIdForRevit2026\PatchElementIdForRevit2026.csproj&quot; -c $(Configuration) -- &quot;$(TargetDir.TrimEnd('\'))&quot;" />
+  </Target>
 </Project>

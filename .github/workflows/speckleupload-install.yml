@@ -30,6 +30,13 @@ jobs:
       - name: Build
         run: dotnet build SpeckleUpload.sln -c Release --no-restore -p:RevitVersion=${{ matrix.revit_version }}
 
+      - name: Patch Speckle DLLs for Revit 2026 ElementId API
+        if: matrix.revit_version == '2026'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\2026\Release\net8.0-windows"
+          dotnet run --project (Join-Path $env:GITHUB_WORKSPACE "tools\PatchElementIdForRevit2026\PatchElementIdForRevit2026.csproj") -c Release -- $bin
+
       - name: Stage install bundle
         shell: pwsh
         env:

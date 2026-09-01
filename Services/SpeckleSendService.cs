@@ -10,6 +10,7 @@ using Speckle.Core.Credentials;
 using Speckle.Core.Models;
 using Speckle.Core.Transports;
 using SpeckleUpload.Models;
+using SpeckleUpload.Revit;
 
 namespace SpeckleUpload.Services;
 
@@ -509,12 +510,7 @@ public static class SpeckleSendService
   {
     try
     {
-      var id =
-#if REVIT2022
-        element.Id.IntegerValue.ToString();
-#else
-        element.Id.Value.ToString();
-#endif
+      var id = ElementIdCompat.ToLong(element.Id).ToString();
       var category = element.Category?.Name ?? "(no category)";
       var name = string.IsNullOrWhiteSpace(element.Name) ? "(no name)" : element.Name;
       return $"id={id} category=\"{category}\" name=\"{name}\" type={element.GetType().Name}";

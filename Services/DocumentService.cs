@@ -1,7 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using RevitSharedResources.Helpers.Extensions;
 using SpeckleUpload;
+using SpeckleUpload.Revit;
 using System.Diagnostics;
 
 namespace SpeckleUpload.Services;
@@ -191,14 +191,7 @@ public static class DocumentService
     }
   }
 
-  private static long ElementIdToLong(ElementId id)
-  {
-#if REVIT2022
-    return id.IntegerValue;
-#else
-    return id.Value;
-#endif
-  }
+  private static long ElementIdToLong(ElementId id) => ElementIdCompat.ToLong(id);
 
   private static bool PathsEqual(string? a, string? b)
   {
