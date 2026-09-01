@@ -193,10 +193,10 @@ public static class DocumentService
 
   private static long ElementIdToLong(ElementId id)
   {
-#if REVIT2024
-    return id.Value;
-#else
+#if REVIT2022
     return id.IntegerValue;
+#else
+    return id.Value;
 #endif
   }
 

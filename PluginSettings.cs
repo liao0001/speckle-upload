@@ -2,7 +2,9 @@ namespace SpeckleUpload;
 
 public static class PluginSettings
 {
-#if REVIT2024
+#if REVIT2026
+  public const int DefaultHttpPort = 6691;
+#elif REVIT2024
   public const int DefaultHttpPort = 6688;
 #else
   public const int DefaultHttpPort = 6687;

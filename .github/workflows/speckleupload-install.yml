@@ -13,8 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        revit_version: ["2022", "2024"]
-        # revit_version: ["2024"]
+        revit_version: ["2022", "2024", "2026"]
 
     steps:
       - name: Checkout
@@ -37,20 +36,30 @@ jobs:
           REVIT_VERSION: ${{ matrix.revit_version }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE "install-bundle"
-          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\$env:REVIT_VERSION\Release\net48"
+          $tfm = if ($env:REVIT_VERSION -eq "2026") { "net8.0-windows" } else { "net48" }
+          $bin = Join-Path $env:GITHUB_WORKSPACE "bin\$env:REVIT_VERSION\Release\$tfm"
           New-Item -ItemType Directory -Path $out -Force | Out-Null
           Copy-Item -Path (Join-Path $bin "*") -Destination $out -Recurse -Force
 
-          if ($env:REVIT_VERSION -eq "2024") {
-            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.Revit2024.addin") -Destination (Join-Path $out "SpeckleUpload.addin") -Force
-          } else {
-            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
+          switch ($env:REVIT_VERSION) {
+            "2024" {
+              Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.Revit2024.addin") -Destination (Join-Path $out "SpeckleUpload.addin") -Force
+            }
+            "2026" {
+              Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.Revit2026.addin") -Destination (Join-Path $out "SpeckleUpload.addin") -Force
+            }
+            default {
+              Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "SpeckleUpload.addin") -Destination $out -Force
+            }
           }
 
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.ps1") -Destination $out -Force
           Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload.cmd") -Destination $out -Force
           if ($env:REVIT_VERSION -eq "2024") {
             Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload-2024.cmd") -Destination $out -Force
+          }
+          if ($env:REVIT_VERSION -eq "2026") {
+            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE "Install-SpeckleUpload-2026.cmd") -Destination $out -Force
           }
 
           Write-Host "Bundle contents ($env:REVIT_VERSION):"

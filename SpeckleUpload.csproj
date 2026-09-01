@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- 构建时指定：dotnet build -p:RevitVersion=2024 -->
+    <!-- 构建时指定：dotnet build -p:RevitVersion=2024|2026 -->
     <RevitVersion Condition="'$(RevitVersion)' == ''">2022</RevitVersion>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitVersion)' == '2026'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitVersion)' != '2026'">net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <RootNamespace>SpeckleUpload</RootNamespace>
     <AssemblyName>SpeckleUpload</AssemblyName>
@@ -19,6 +20,9 @@
   <PropertyGroup Condition="'$(RevitVersion)' == '2024'">
     <DefineConstants>$(DefineConstants);REVIT2024</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(RevitVersion)' == '2026'">
+    <DefineConstants>$(DefineConstants);REVIT2026</DefineConstants>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
@@ -32,6 +36,10 @@
   </ItemGroup>
   <ItemGroup Condition="'$(RevitVersion)' == '2024'">
     <PackageReference Include="Speckle.Objects.Converter.Revit2024" Version="2.23.2" />
+  </ItemGroup>
+  <!-- NuGet 尚无 Revit2026 Converter，暂用 Revit2025（.NET 8）与 Revit 2026 API 对齐 -->
+  <ItemGroup Condition="'$(RevitVersion)' == '2026'">
+    <PackageReference Include="Speckle.Objects.Converter.Revit2025" Version="2.23.2" />
   </ItemGroup>
 
   <ItemGroup>

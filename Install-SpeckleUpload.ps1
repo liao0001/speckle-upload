@@ -6,14 +6,14 @@
   将当前目录（解压后的 SpeckleUpload 制品）部署到 Revit 用户插件目录。
 
 .PARAMETER RevitYear
-  Revit 版本年号：2022 或 2024。默认 2022。
+  Revit 版本年号：2022、2024 或 2026。默认 2022。
 
 .DESCRIPTION
   目标目录：%APPDATA%\Autodesk\Revit\Addins\{RevitYear}\SpeckleUpload
 #>
 
 param(
-  [ValidateSet("2022", "2024")]
+  [ValidateSet("2022", "2024", "2026")]
   [string]$RevitYear = "2022"
 )
 

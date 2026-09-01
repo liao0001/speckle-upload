@@ -218,3 +218,8 @@
 - 打开后等待策略改为代码内默认值（`DefaultPostOpenIdleTicks=3`、`DefaultPostOpenSettleSeconds=2`），部署无需配置环境变量
 - 旧行为可选：`SPECKLE_UPLOAD_IMMEDIATE_CONVERT_AFTER_OPEN=1` 时打开后立即转换，跳过 Idling/settle/Regenerate
 - 启动日志输出 `DescribePostOpenConvertPolicy()`；`说明.md` 补充默认行为说明
+
+## 2026-09-01 20:04
+- 新增 Revit **2026** 构建：`-p:RevitVersion=2026`，目标框架 `net8.0-windows`，默认 HTTP 端口 **6691**
+- NuGet 尚无 `Speckle.Objects.Converter.Revit2026`，暂引用 `Speckle.Objects.Converter.Revit2025` 2.23.2
+- 新增 `SpeckleUpload.Revit2026.addin`、`Install-SpeckleUpload-2026.cmd`；CI 矩阵增加 2026；`ElementId` 判断改为 `REVIT2022` vs 其它版本

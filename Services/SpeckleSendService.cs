@@ -510,10 +510,10 @@ public static class SpeckleSendService
     try
     {
       var id =
-#if REVIT2024
-        element.Id.Value.ToString();
-#else
+#if REVIT2022
         element.Id.IntegerValue.ToString();
+#else
+        element.Id.Value.ToString();
 #endif
       var category = element.Category?.Name ?? "(no category)";
       var name = string.IsNullOrWhiteSpace(element.Name) ? "(no name)" : element.Name;
