@@ -265,3 +265,7 @@
 ## 2026-09-01 22:47
 - 修复补丁工具 `Objects.dll` 文件锁：先在临时目录复制全部 DLL 再批量补丁，仅将已修改文件拷回输出目录；读写改为 `ReadWrite=false` + 写临时文件后覆盖
 - CI / 本地查找 `RevitAPI.dll` 时排除 `ref\` 目录，优先使用完整程序集
+
+## 2026-09-01 23:00
+- 修复排除 `ref\` 后找不到 `RevitAPI.dll`：Nice3point 2026.4.10 包内可能仅有 `ref` 程序集；查找顺序改为 `content` → 非 `ref` → 任意（含 `ref` 回退）
+- 移除 `RevitApiAssemblyResolver.Dispose()` 消除 CS0108 警告

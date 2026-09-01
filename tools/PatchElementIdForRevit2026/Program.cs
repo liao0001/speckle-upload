@@ -138,11 +138,39 @@ internal static class Program
       return null;
     }
 
-    return Directory
-      .EnumerateFiles(packageRoot, "RevitAPI.dll", SearchOption.AllDirectories)
-      .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+    return PickRevitApiDll(Directory.EnumerateFiles(packageRoot, "RevitAPI.dll", SearchOption.AllDirectories));
+  }
+
+  private static string? PickRevitApiDll(IEnumerable<string> candidates)
+  {
+    var paths = candidates.ToList();
+    if (paths.Count == 0)
+    {
+      return null;
+    }
+
+    static bool HasPathSegment(string path, string segment) =>
+      path.Contains($"{Path.DirectorySeparatorChar}{segment}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+
+    var fromContent = paths
+      .Where(path => HasPathSegment(path, "content"))
       .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
       .FirstOrDefault();
+    if (fromContent != null)
+    {
+      return fromContent;
+    }
+
+    var notRef = paths
+      .Where(path => !HasPathSegment(path, "ref"))
+      .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+      .FirstOrDefault();
+    if (notRef != null)
+    {
+      return notRef;
+    }
+
+    return paths.OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
   }
 
   private static bool ShouldSkip(string assemblyName)
@@ -269,7 +297,7 @@ internal static class Program
     return changed;
   }
 
-  private sealed class RevitApiAssemblyResolver : DefaultAssemblyResolver, IDisposable
+  private sealed class RevitApiAssemblyResolver : DefaultAssemblyResolver
   {
     private readonly string _revitApiPath;
     private AssemblyDefinition? _revitApiAssembly;
@@ -292,11 +320,6 @@ internal static class Program
       }
 
       return base.Resolve(name);
-    }
-
-    public void Dispose()
-    {
-      _revitApiAssembly?.Dispose();
     }
   }
 }
