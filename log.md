@@ -269,3 +269,8 @@
 ## 2026-09-01 23:00
 - 修复排除 `ref\` 后找不到 `RevitAPI.dll`：Nice3point 2026.4.10 包内可能仅有 `ref` 程序集；查找顺序改为 `content` → 非 `ref` → 任意（含 `ref` 回退）
 - 移除 `RevitApiAssemblyResolver.Dispose()` 消除 CS0108 警告
+
+## 2026-11-03 11:29
+- 打开 RVT 前用 `BasicFileInfo.IsWorkshared` 区分：普通文件 `DoNotDetach`，不再无条件 `DetachAndDiscardWorksets`（非工作共享文件会报错）
+- 工作共享 / 中心文件 / 本地副本改为分离并丢弃工作集，且 `AllowOpeningLocalByWrongUser=true`，打开时不依赖中心文件
+- 文件信息与实际不一致时，用另一套 `OpenOptions` 再打开一次

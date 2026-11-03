@@ -255,14 +255,8 @@ public static class DocumentService
 
     PluginLog.Step("Doc", "OpenDocument: file exists, building ModelPath");
     var modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(filePath);
-    var openOptions = new OpenOptions
-    {
-      DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets,
-      AllowOpeningLocalByWrongUser = true,
-      Audit = false,
-    };
-
-    PluginLog.Step("Doc", "OpenDocument: OpenOptions detach=DetachAndDiscardWorksets AllowOpeningLocalByWrongUser=true");
+    var workshared = TryGetIsWorkshared(filePath, out var fileInfoDetail);
+    PluginLog.Step("Doc", $"OpenDocument: {fileInfoDetail}");
     if (PluginSettings.EnableDialogSuppression)
     {
       RevitOpenDialogSuppression.ArmForOpen();
@@ -277,7 +271,7 @@ public static class DocumentService
     var openWatch = Stopwatch.StartNew();
     try
     {
-      uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
+      OpenAndActivateWithWorkshareFallback(uiApp, modelPath, workshared);
     }
     finally
     {
@@ -299,6 +293,111 @@ public static class DocumentService
 
     PluginLog.Step("Doc", $"OpenDocument: success title=\"{activeDoc.Title}\" path=\"{activeDoc.PathName}\"");
     return activeDoc;
+  }
+
+  /// <summary>
+  /// 普通文件用 DoNotDetach。工作共享文件才分离并丢弃工作集，避免去找中心文件。
+  /// 判断与实际文件不一致时，用另一套选项再打开一次。
+  /// </summary>
+  private static void OpenAndActivateWithWorkshareFallback(
+    UIApplication uiApp,
+    ModelPath modelPath,
+    bool workshared
+  )
+  {
+    try
+    {
+      OpenAndActivateOnce(uiApp, modelPath, workshared);
+    }
+    catch (Exception ex) when (CanRetryOpen(ex, workshared))
+    {
+      PluginLog.Step(
+        "Doc",
+        $"OpenDocument: first open failed {ex.GetType().Name}: {ex.Message}; retry workshared={!workshared}"
+      );
+      OpenAndActivateOnce(uiApp, modelPath, !workshared);
+    }
+  }
+
+  private static void OpenAndActivateOnce(UIApplication uiApp, ModelPath modelPath, bool workshared)
+  {
+    var openOptions = CreateOpenOptions(workshared);
+    PluginLog.Step("Doc", DescribeOpenOptions(workshared));
+    uiApp.OpenAndActivateDocument(modelPath, openOptions, false);
+  }
+
+  private static OpenOptions CreateOpenOptions(bool workshared)
+  {
+    var openOptions = new OpenOptions
+    {
+      Audit = false,
+      DetachFromCentralOption = workshared
+        ? DetachFromCentralOption.DetachAndDiscardWorksets
+        : DetachFromCentralOption.DoNotDetach,
+    };
+
+    if (workshared)
+    {
+      openOptions.AllowOpeningLocalByWrongUser = true;
+    }
+
+    return openOptions;
+  }
+
+  private static string DescribeOpenOptions(bool workshared)
+  {
+    return workshared
+      ? "OpenDocument: OpenOptions detach=DetachAndDiscardWorksets AllowOpeningLocalByWrongUser=true (workshared, no central required)"
+      : "OpenDocument: OpenOptions detach=DoNotDetach (not workshared)";
+  }
+
+  private static bool TryGetIsWorkshared(string filePath, out string detail)
+  {
+    try
+    {
+      var info = BasicFileInfo.Extract(filePath);
+      try
+      {
+        detail =
+          $"BasicFileInfo IsWorkshared={info.IsWorkshared} IsCentral={info.IsCentral} IsLocal={info.IsLocal} central=\"{info.CentralPath}\"";
+        return info.IsWorkshared;
+      }
+      finally
+      {
+        info.Dispose();
+      }
+    }
+    catch (Exception ex)
+    {
+      detail = $"BasicFileInfo failed {ex.GetType().Name}: {ex.Message}; assume not workshared";
+      return false;
+    }
+  }
+
+  private static bool CanRetryOpen(Exception ex, bool openedAsWorkshared)
+  {
+    var typeName = ex.GetType().Name;
+    var message = ex.Message ?? string.Empty;
+
+    if (openedAsWorkshared)
+    {
+      return ContainsText(message, "not workshared")
+        || ContainsText(message, "未启用工作共享")
+        || ContainsText(message, "不是工作共享");
+    }
+
+    return typeName.IndexOf("Central", StringComparison.OrdinalIgnoreCase) >= 0
+      || ContainsText(message, "central")
+      || ContainsText(message, "workset")
+      || ContainsText(message, "workshar")
+      || ContainsText(message, "中心")
+      || ContainsText(message, "工作集")
+      || ContainsText(message, "工作共享");
+  }
+
+  private static bool ContainsText(string text, string value)
+  {
+    return text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
   }
 
   public static void CloseActiveDocument(UIApplication uiApp)
