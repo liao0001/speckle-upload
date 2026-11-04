@@ -485,12 +485,45 @@ public static class DocumentService
       .Where(element => element.IsPhysicalElement())
       .ToList();
 
-    PluginLog.Step("Doc", $"GetPhysicalObjects: after collector count={elements.Count}");
+    var excludedLinked = elements.Where(IsLinkedOrExternalDrawing).ToList();
+    if (excludedLinked.Count > 0)
+    {
+      elements = elements.Where(element => !IsLinkedOrExternalDrawing(element)).ToList();
+    }
+
+    PluginLog.Step(
+      "Doc",
+      $"GetPhysicalObjects: after collector count={elements.Count} excludedLinkedOrExternalDrawing={excludedLinked.Count}"
+    );
 
     var filtered = FilterHiddenDesignOptions(document, elements);
     PluginLog.Step("Doc", $"GetPhysicalObjects: after design-option filter count={filtered.Count}");
 
     return filtered;
+  }
+
+  /// <summary>
+  /// 对应官方插件未勾选「发送链接模型」：不发送 Revit 链接，以及导入/链接的 CAD 外部图纸。
+  /// </summary>
+  private static bool IsLinkedOrExternalDrawing(Element element)
+  {
+    if (element.Document.IsLinked)
+    {
+      return true;
+    }
+
+    if (element is RevitLinkInstance or ImportInstance)
+    {
+      return true;
+    }
+
+    if (element.Category?.Id == null)
+    {
+      return false;
+    }
+
+    var category = ElementIdCompat.ToBuiltInCategory(element.Category.Id);
+    return category == BuiltInCategory.OST_RvtLinks || category == BuiltInCategory.OST_ImportObjectStyles;
   }
 
   private static List<Element> FilterHiddenDesignOptions(Document document, List<Element> selection)

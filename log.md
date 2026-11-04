@@ -274,3 +274,7 @@
 - 打开 RVT 前用 `BasicFileInfo.IsWorkshared` 区分：普通文件 `DoNotDetach`，不再无条件 `DetachAndDiscardWorksets`（非工作共享文件会报错）
 - 工作共享 / 中心文件 / 本地副本改为分离并丢弃工作集，且 `AllowOpeningLocalByWrongUser=true`，打开时不依赖中心文件
 - 文件信息与实际不一致时，用另一套 `OpenOptions` 再打开一次
+
+## 2026-11-04 12:15
+- 对齐官方 Speckle「发送链接模型」：转换前设置 `linkedmodels-send=false`
+- 采集物理图元时排除 Revit 链接（`RevitLinkInstance`）和 CAD 外部图纸（`ImportInstance`），避免远处多出一块链接图

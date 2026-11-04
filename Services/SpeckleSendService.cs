@@ -41,6 +41,9 @@ public static class SpeckleSendService
     var converter = new ConverterRevit();
     PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: SetContextDocument + clear report");
     converter.SetContextDocument(document);
+    // 与官方插件「Send Linked Models / 发送链接模型」一致，默认不发送。
+    converter.SetConverterSettings(new Dictionary<string, string> { ["linkedmodels-send"] = "false" });
+    PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: converter setting linkedmodels-send=false");
     converter.Report.ReportObjects.Clear();
 
     PluginLog.Step("Speckle", "SendPhysicalObjectsAsync: GetPhysicalObjects");
