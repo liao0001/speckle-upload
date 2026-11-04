@@ -14,6 +14,8 @@ internal static class Program
     "Nice3point.Revit.Api.RevitAPI",
     "Nice3point.Revit.Api.RevitAPIUI",
     "PatchElementIdForRevit2026",
+    // 官方 Speckle 3.x 插件。Cecil 重写会把内嵌的 Revit.Async.<guid>RevitTask 写成重复类型，Revit 启动直接 BadImageFormatException。
+    "Speckle.Connectors",
   };
 
   internal static int Main(string[] args)
@@ -204,6 +206,14 @@ internal static class Program
 
     using var assembly = AssemblyDefinition.ReadAssembly(path, readerParameters);
     var module = assembly.MainModule;
+    if (ContainsInjectedRevitTask(module))
+    {
+      Console.WriteLine(
+        $"skip: {Path.GetFileName(path)} contains Revit.Async file-local RevitTask (rewrite duplicates the type)"
+      );
+      return false;
+    }
+
     var getValueRef = module.ImportReference(getValueDef);
     var longCtorRef = module.ImportReference(longCtorDef);
 
@@ -218,10 +228,29 @@ internal static class Program
       return false;
     }
 
+    var duplicateType = module
+      .GetTypes()
+      .GroupBy(type => type.FullName)
+      .FirstOrDefault(group => group.Count() > 1);
+    if (duplicateType != null)
+    {
+      Console.Error.WriteLine(
+        $"skip write: {Path.GetFileName(path)} already has duplicate type {duplicateType.Key}"
+      );
+      return false;
+    }
+
     var tempPath = path + ".patchtmp";
     assembly.Write(tempPath);
     File.Move(tempPath, path, overwrite: true);
     return true;
+  }
+
+  private static bool ContainsInjectedRevitTask(ModuleDefinition module)
+  {
+    return module.GetTypes().Any(type =>
+      type.Namespace == "Revit.Async" && type.Name.Contains("RevitTask", StringComparison.Ordinal)
+    );
   }
 
   private static bool PatchType(TypeDefinition type, MethodReference getValueRef, MethodReference longCtorRef)

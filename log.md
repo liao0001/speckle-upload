@@ -278,3 +278,7 @@
 ## 2026-11-04 12:15
 - 对齐官方 Speckle「发送链接模型」：转换前设置 `linkedmodels-send=false`
 - 采集物理图元时排除 Revit 链接（`RevitLinkInstance`）和 CAD 外部图纸（`ImportInstance`），避免远处多出一块链接图
+
+## 2026-11-04 13:04
+- 2026 IL 补丁跳过 `Speckle.Connectors.*`，以及内嵌 `Revit.Async.*RevitTask` 的程序集；写回前若已有重复类型则不覆盖
+- 避免 Cecil 重写把 `Speckle.Connectors.Revit.Common` 里的 `Revit.Async.<guid>RevitTask` 写成重复类型，导致 Revit 启动官方插件 BadImageFormatException
