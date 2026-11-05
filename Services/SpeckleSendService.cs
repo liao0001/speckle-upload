@@ -97,12 +97,13 @@ public static class SpeckleSendService
     string? currentElementLabel = null;
     var lastUiYieldUtc = DateTime.MinValue;
     var heartbeatState = new ConvertHeartbeatState();
-    using var convertHeartbeat = StartConvertHeartbeat(
+    using (StartConvertHeartbeat(
       convertWatch,
       heartbeatState,
       physicalObjects.Count,
       reporter
-    );
+    ))
+    {
     foreach (var element in physicalObjects)
     {
       index++;
@@ -186,6 +187,7 @@ public static class SpeckleSendService
         }
       }
     }
+    }
 
     currentElementLabel = null;
 
@@ -258,6 +260,7 @@ public static class SpeckleSendService
       };
 
       var sendWatch = Stopwatch.StartNew();
+      SqliteNative.EnsureLoaded();
       using var heartbeat = StartSendHeartbeat(sendWatch);
       objectId = await Operations
         .Send(
@@ -389,7 +392,37 @@ public static class SpeckleSendService
       cts.Token
     );
 
-    return cts;
+    return new CancelHeartbeat(cts);
+  }
+
+  /// <summary>Dispose 时取消心跳。CancellationTokenSource.Dispose 本身不会取消。</summary>
+  private sealed class CancelHeartbeat : IDisposable
+  {
+    private readonly CancellationTokenSource _cts;
+    private int _disposed;
+
+    public CancelHeartbeat(CancellationTokenSource cts)
+    {
+      _cts = cts;
+    }
+
+    public void Dispose()
+    {
+      if (Interlocked.Exchange(ref _disposed, 1) != 0)
+      {
+        return;
+      }
+
+      try
+      {
+        _cts.Cancel();
+      }
+      catch (ObjectDisposedException)
+      {
+      }
+
+      _cts.Dispose();
+    }
   }
 
   /// <summary>
@@ -454,7 +487,7 @@ public static class SpeckleSendService
       cts.Token
     );
 
-    return cts;
+    return new CancelHeartbeat(cts);
   }
 
   /// <summary>

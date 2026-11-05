@@ -29,6 +29,8 @@ public sealed class UploadCallbackReporter
   private int _lastReportedPercent;
   private DateTime _lastProgressReportUtc = DateTime.MinValue;
 
+  private int _stopped;
+
   public UploadCallbackReporter(UploadRequest request)
   {
     _request = request;
@@ -144,13 +146,25 @@ public sealed class UploadCallbackReporter
 
   public void ApplyFinalProgress(UploadCallbackPayload payload)
   {
+    StopProgress();
     payload.Progress = "完成";
     payload.IsFinal = true;
     payload.ProgressIndex = PercentComplete;
   }
 
+  /// <summary>最终回调之后不再发进度，避免失败后心跳把状态打回「解析」。</summary>
+  public void StopProgress()
+  {
+    Interlocked.Exchange(ref _stopped, 1);
+  }
+
   private void Report(string progress, int percent)
   {
+    if (Volatile.Read(ref _stopped) != 0)
+    {
+      PluginLog.Step("Callback", $"status report skipped after stop progress={progress} requestId={_request.RequestId}");
+      return;
+    }
     percent = Math.Max(0, Math.Min(100, percent));
     if (percent < _lastReportedPercent)
     {

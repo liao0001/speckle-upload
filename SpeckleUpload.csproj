@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- 与 Speckle.Core 的 Microsoft.Data.Sqlite 7.0.5 对齐。该类库不会自动把 e_sqlite3.dll 拷到输出目录。 -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.4" GeneratePathProperty="true" />
     <!-- Revit API（CI 编译用；运行时由 Revit 提供，不随插件复制） -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" GeneratePathProperty="true" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" />
@@ -45,4 +47,16 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="CopyESqlite3" AfterTargets="Build">
+    <PropertyGroup>
+      <_ESqlite3Src>$(PkgSQLitePCLRaw_lib_e_sqlite3)\runtimes\win-x64\native\e_sqlite3.dll</_ESqlite3Src>
+    </PropertyGroup>
+    <Warning Text="e_sqlite3.dll not found at $(_ESqlite3Src)" Condition="!Exists('$(_ESqlite3Src)')" />
+    <Copy
+      SourceFiles="$(_ESqlite3Src)"
+      DestinationFolder="$(OutputPath)"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(_ESqlite3Src)')" />
+  </Target>
 </Project>

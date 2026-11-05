@@ -286,3 +286,8 @@
 ## 2026-11-05 11:21
 - `Operations.Send` 设置 `useDefaultCache=false`：Revit 2026 加载不到本地库 `e_sqlite3`，默认 SQLite 缓存会在上传前抛 `DllNotFoundException`
 - 关闭已上传文档时，空白项目先保存再 `OpenAndActivateDocument`，避免活动文档无法 `Close`
+
+## 2026-11-05 12:17
+- 解析心跳只覆盖转换循环，结束时取消；`CancellationTokenSource.Dispose` 不会取消，失败后仍会再发「解析」
+- 最终回调前 `StopProgress`，之后的进度回调不再发出
+- 构建时把 `e_sqlite3.dll` 拷到插件目录，上传前按插件目录加载，避免 Revit 进程找不到 SQLite 本地库
