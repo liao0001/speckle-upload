@@ -211,7 +211,7 @@ public sealed class UploadCallbackReporter
       "Callback",
       $"status report progress={progress} progress_index={percent} requestId={request.RequestId}"
     );
-    CallbackService.SendFireAndForget(payload, callbackUrl);
+    CallbackService.SendProgress(payload, callbackUrl);
   }
 
   internal static int ComputeConvertPercent(int current, int total)

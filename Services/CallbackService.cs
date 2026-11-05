@@ -25,7 +25,7 @@ public static class CallbackService
     };
   }
 
-  public static async Task SendAsync(UploadCallbackPayload payload, string? callbackUrl = null)
+  public static async Task SendAsync(UploadCallbackPayload payload, string? callbackUrl = null, TimeSpan? timeout = null)
   {
     var url = ResolveCallbackUrl(callbackUrl);
     var totalWatch = Stopwatch.StartNew();
@@ -38,12 +38,14 @@ public static class CallbackService
     PluginLog.Step("Callback", $"SendAsync: body length={json.Length} bytes (UTF-8, snake_case)");
 
     using var content = new StringContent(json, Encoding.UTF8, "application/json");
+    using var timeoutCts = timeout.HasValue ? new CancellationTokenSource(timeout.Value) : null;
+    var requestToken = timeoutCts?.Token ?? CancellationToken.None;
     HttpResponseMessage response;
     var postWatch = Stopwatch.StartNew();
     try
     {
       PluginLog.Step("Callback", "SendAsync: PostAsync start");
-      response = await HttpClient.PostAsync(url, content).ConfigureAwait(false);
+      response = await HttpClient.PostAsync(url, content, requestToken).ConfigureAwait(false);
       postWatch.Stop();
       PluginLog.StepElapsed(
         "Callback",
@@ -125,6 +127,35 @@ public static class CallbackService
 
     totalWatch.Stop();
     PluginLog.StepElapsed("Callback", "SendAsync: end OK ret=0", totalWatch.ElapsedMilliseconds);
+  }
+
+  /// <summary>
+  /// 阶段进度同步发给 speckle_sync。本地回调很快；超时只记日志，不中断上传。
+  /// 异步发送会和最终成功回调抢先后，小模型经常只剩下「执行」。
+  /// </summary>
+  public static void SendProgress(UploadCallbackPayload payload, string? callbackUrl = null)
+  {
+    var progress = payload.Progress ?? "-";
+    var watch = Stopwatch.StartNew();
+    try
+    {
+      SendAsync(payload, callbackUrl, TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+      watch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendProgress: done progress={progress} requestId={payload.RequestId}",
+        watch.ElapsedMilliseconds
+      );
+    }
+    catch (Exception ex)
+    {
+      watch.Stop();
+      PluginLog.StepElapsed(
+        "Callback",
+        $"SendProgress: failed progress={progress} requestId={payload.RequestId} ex={ex.GetType().Name} msg={ex.Message}",
+        watch.ElapsedMilliseconds
+      );
+    }
   }
 
   public static void SendFireAndForget(UploadCallbackPayload payload, string? callbackUrl = null)
