@@ -282,3 +282,7 @@
 ## 2026-11-04 13:04
 - 2026 IL 补丁跳过 `Speckle.Connectors.*`，以及内嵌 `Revit.Async.*RevitTask` 的程序集；写回前若已有重复类型则不覆盖
 - 避免 Cecil 重写把 `Speckle.Connectors.Revit.Common` 里的 `Revit.Async.<guid>RevitTask` 写成重复类型，导致 Revit 启动官方插件 BadImageFormatException
+
+## 2026-11-05 11:21
+- `Operations.Send` 设置 `useDefaultCache=false`：Revit 2026 加载不到本地库 `e_sqlite3`，默认 SQLite 缓存会在上传前抛 `DllNotFoundException`
+- 关闭已上传文档时，空白项目先保存再 `OpenAndActivateDocument`，避免活动文档无法 `Close`

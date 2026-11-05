@@ -223,7 +223,7 @@ public static class SpeckleSendService
     {
       PluginLog.Step(
         "Speckle",
-        $"SendPhysicalObjectsAsync: Operations.Send begin (upload to {serverUrl}, converted={convertedCount})"
+        $"SendPhysicalObjectsAsync: Operations.Send begin (upload to {serverUrl}, converted={convertedCount}, useDefaultCache=false)"
       );
       reporter?.BeginUpload(convertedCount);
       reporter?.ReportUploadStart();
@@ -264,6 +264,7 @@ public static class SpeckleSendService
           @object: commitObject,
           cancellationToken: CancellationToken.None,
           transports: transports,
+          useDefaultCache: false,
           onProgressAction: onProgress,
           onErrorAction: null,
           disposeTransports: false

@@ -406,7 +406,7 @@ public static class DocumentService
   }
 
   /// <summary>
-  /// 最终回调完成后异步关闭上传用的 RVT：先打开空白项目切换活动文档，再关闭目标文件。
+  /// 最终回调完成后异步关闭上传用的 RVT。活动文档不能直接 Close，先激活一个已保存的空白项目再关目标文件。
   /// </summary>
   public static void CloseUploadedDocument(UIApplication uiApp, string? uploadedFilePath)
   {
@@ -426,22 +426,13 @@ public static class DocumentService
     }
 
     var targetLabel = SafeDocumentLabel(target);
-    Document? blankDocument = null;
 
     if (IsSameDocument(uiApp.ActiveUIDocument?.Document, target))
     {
-      PluginLog.Step("Doc", "CloseUploadedDocument: target is active, opening blank project to switch away");
-      try
+      PluginLog.Step("Doc", "CloseUploadedDocument: target is active, activating blank project to switch away");
+      if (!TryActivateBlankProject(uiApp, target))
       {
-        var unitSystem = target.DisplayUnitSystem == DisplayUnit.IMPERIAL
-          ? UnitSystem.Imperial
-          : UnitSystem.Metric;
-        blankDocument = uiApp.Application.NewProjectDocument(unitSystem);
-        PluginLog.Step("Doc", $"CloseUploadedDocument: blank project opened title=\"{blankDocument.Title}\"");
-      }
-      catch (Exception ex)
-      {
-        PluginLog.Step("Doc", $"CloseUploadedDocument: NewProjectDocument failed: {ex.GetType().Name} {ex.Message}");
+        PluginLog.Step("Doc", "CloseUploadedDocument: still active, skip close");
         return;
       }
     }
@@ -451,14 +442,43 @@ public static class DocumentService
       PluginLog.Step("Doc", "CloseUploadedDocument: failed to close uploaded document");
     }
 
-    if (blankDocument != null)
-    {
-      var blankLabel = SafeDocumentLabel(blankDocument);
-      PluginLog.Step("Doc", $"CloseUploadedDocument: closing temporary blank document {blankLabel}");
-      TryCloseDocument(blankDocument, blankLabel);
-    }
-
     PluginLog.Step("Doc", "CloseUploadedDocument: end");
+  }
+
+  /// <summary>
+  /// NewProjectDocument 不会切换 UI 活动文档，活动文档仍无法 Close。
+  /// 存成临时 RVT 后再 OpenAndActivateDocument，才能把上传文件从活动文档换走。
+  /// </summary>
+  private static bool TryActivateBlankProject(UIApplication uiApp, Document target)
+  {
+    Document? blank = null;
+    try
+    {
+      var unitSystem = target.DisplayUnitSystem == DisplayUnit.IMPERIAL
+        ? UnitSystem.Imperial
+        : UnitSystem.Metric;
+      blank = uiApp.Application.NewProjectDocument(unitSystem);
+      var folder = Path.Combine(Path.GetTempPath(), "SpeckleUpload");
+      Directory.CreateDirectory(folder);
+      var tempPath = Path.Combine(folder, "blank.rvt");
+      var saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+      blank.SaveAs(tempPath, saveOptions);
+      blank.Close(false);
+      blank = null;
+      uiApp.OpenAndActivateDocument(tempPath);
+      PluginLog.Step("Doc", $"CloseUploadedDocument: blank project activated path=\"{tempPath}\"");
+      return true;
+    }
+    catch (Exception ex)
+    {
+      PluginLog.Step("Doc", $"CloseUploadedDocument: activate blank failed: {ex.GetType().Name} {ex.Message}");
+      if (blank != null)
+      {
+        TryCloseDocument(blank, SafeDocumentLabel(blank));
+      }
+
+      return false;
+    }
   }
 
   private static Document? FindOpenDocumentByPath(UIApplication uiApp, string? filePath)
