@@ -291,3 +291,6 @@
 - 解析心跳只覆盖转换循环，结束时取消；`CancellationTokenSource.Dispose` 不会取消，失败后仍会再发「解析」
 - 最终回调前 `StopProgress`，之后的进度回调不再发出
 - 构建时把 `e_sqlite3.dll` 拷到插件目录，上传前按插件目录加载，避免 Revit 进程找不到 SQLite 本地库
+
+## 2026-11-05 13:09
+- 2026 IL 补丁跳过原生 `e_sqlite3.dll`；遇到非托管 DLL 的 `BadImageFormatException` 只跳过该文件，不再让整次补丁失败

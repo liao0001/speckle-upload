@@ -16,6 +16,8 @@ internal static class Program
     "PatchElementIdForRevit2026",
     // 官方 Speckle 3.x 插件。Cecil 重写会把内嵌的 Revit.Async.<guid>RevitTask 写成重复类型，Revit 启动直接 BadImageFormatException。
     "Speckle.Connectors",
+    // 原生 SQLite，不是托管程序集，Cecil 读取会 BadImageFormatException。
+    "e_sqlite3",
   };
 
   internal static int Main(string[] args)
@@ -86,7 +88,18 @@ internal static class Program
           continue;
         }
 
-        if (PatchAssembly(dllPath, revitApiPath, getValueDef, longCtorDef))
+        bool patched;
+        try
+        {
+          patched = PatchAssembly(dllPath, revitApiPath, getValueDef, longCtorDef);
+        }
+        catch (BadImageFormatException ex)
+        {
+          Console.WriteLine($"skip native or invalid image: {Path.GetFileName(dllPath)} ({ex.Message})");
+          continue;
+        }
+
+        if (patched)
         {
           patchedNames.Add(Path.GetFileName(dllPath));
           Console.WriteLine($"patched: {Path.GetFileName(dllPath)}");
